@@ -37,8 +37,8 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- ИНИЦИАЛИЗАЦИЯ БОТА ---
-TOKEN = "8747134357:AAHqkHA7H7fU_WT5yf0cra5XUzih_l58Owk"
-ADMIN_ID = 0  # Укажите ваш Telegram ID для доступа к /stats и /broadcast
+TOKEN = "8747134357:AAEbQfxjuf04zDrr-8ZtXjxVzeSaEqAnzcA"
+ADMIN_ID = 0  # Вкажіть ваш Telegram ID для доступу до /stats та /broadcast
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -362,8 +362,8 @@ def process_osint(message):
         parts = data.split()
         if len(parts) >= 2:
             fn, ln = parts[0].lower(), parts[1].lower()
-            emails = [f"{fn}.{ln}@gmail.com", f"{fn}{ln}@gmail.com", f"{fn[0]}{ln}@gmail.com", f"{ln}.{fn}@gmail.com"]
-            usernames = [f"{fn}_{ln}", f"{fn}.{ln}", f"{ln}_{fn}", f"{fn}{ln}"]
+            emails = [f"{fn}.{ln}@gmail.com", f"{fn}{ln}@gmail.com", f"{fn[0]}{ln}@gmail.com", f"{fn}.{fn}@gmail.com"]
+            usernames = [f"{fn}_{ln}", f"{fn}.{ln}", f"{fn}_{fn}", f"{fn}{ln}"]
             
             res_gen = f"🎯 **Згенеровані варіанти за ім'ям {data}:**\n\n"
             res_gen += "📧 **Ймовірні Email:**\n" + "\n".join([f"• `{e}`" for e in emails]) + "\n\n"
