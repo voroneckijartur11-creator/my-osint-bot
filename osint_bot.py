@@ -22,7 +22,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # Инициализация бота
-TOKEN = "8747134357:AAGA5rpd-_sudqmlNJf_QvmCI0K0fRliM5I"
+TOKEN = "8747134357:AAEV2RzAKK2JD-Wf8b20pxiTmWVCGMY_dPY"
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
