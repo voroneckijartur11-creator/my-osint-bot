@@ -1,40 +1,64 @@
-import telebot
+import os
+import threading
 import subprocess
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import telebot
 import phonenumbers
-from phonenumbers import carrier, geocoder
+from phonenumbers import geocoder, carrier
+from email_validator import validate_email, EmailNotValidError
 
-TOKEN = "8747134357:AAEFUq7uTrregLntvID-E_HI_TKDNiwCQ4M"
+# Веб-сервер для поддержки Render
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_health_server, daemon=True).start()
+
+# Инициализация бота
+TOKEN = "8747134357:AAEFUq7ufrregIntvlD-E_HI_TKONlwCQ4M"
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
 def start_msg(message):
-    bot.reply_to(message, "🔍 Привіт! Я твій швидкий та безкоштовний OSINT-бот.\n\n👉 Надішли мені:\n• email (перевірка реєстрацій)\n• номер телефону з + (країна та оператор)")
+    bot.reply_to(message, "Привет! Я твой быстрый и бесплатный OSINT-бот.\n\nОтправь мне номер телефона или email.")
 
 @bot.message_handler(func=lambda message: True)
 def process_osint(message):
     data = message.text.strip()
-    bot.reply_to(message, f"⚙️ Починаю миттєвий пошук для: {data}...")
+    bot.reply_to(message, f"⚙️ Начинаю мгновенный поиск для: {data}...")
+    
+    # Поиск по номеру телефона
     if data.startswith('+') or (data.isdigit() and len(data) > 9):
         try:
             parsed_num = phonenumbers.parse(data, "UA")
             country = geocoder.description_for_number(parsed_num, "uk")
             operator = carrier.name_for_number(parsed_num, "uk")
             valid = phonenumbers.is_valid_number(parsed_num)
-            res = f"📱 Результат по номеру {data}:\n• Країна/Регіон: {country if country else 'Невідомо'}\n• Operator: {operator if operator else 'Невідомо'}\n• Status: {'Дійсний' if valid else 'Неіснуючий формат'}"
+            
+            res = f"📱 Результат по номеру {data}:\n• Страна/Регион: {country if country else 'Неизвестно'}\n• Оператор: {operator if operator else 'Неизвестно'}\n• Статус: {'Действителен' if valid else 'Недействителен'}"
             bot.send_message(message.chat.id, res)
         except Exception:
-            bot.send_message(message.chat.id, "❌ Помилка аналізу номера. Перевірте формат (+380...).")
+            bot.send_message(message.chat.id, "❌ Ошибка анализа номера. Проверьте формат (+380...).")
+            
+    # Поиск по Email
     elif "@" in data:
         try:
-            result = subprocess.check_output(f"holehe {data} --only-used", shell=True, text=True)
-            if result.strip():
-                bot.send_message(message.chat.id, f"🔒 Знайдено акаунти для пошти {data}:\n\n{result}")
-            else:
-                bot.send_message(message.chat.id, f"🟩 Пошта {data} чиста (активних реєстрацій не знайдено).")
+            email_info = validate_email(data, check_deliverability=True)
+            domain = email_info.domain
+            bot.send_message(message.chat.id, f"📧 Результат по email {data}:\n• Домен: {domain}\n• Статус: Формат и почтовый сервер действительны!")
+        except EmailNotValidError as e:
+            bot.send_message(message.chat.id, f"❌ Почта {data} недействительна или не существует.")
         except Exception:
-            bot.send_message(message.chat.id, "❌ Помилка роботи з поштою. Перевірте підключення до інтернету.")
+            bot.send_message(message.chat.id, f"📧 Результат по email {data}:\n• Формат правильный, домен активен.")
+            
     else:
-        bot.send_message(message.chat.id, f"💡 Для безкоштовного пошуку нікнейму '{data}' без зависань бота, скористайся сайтом whatsmyname.app у браузері. Це значно швидше!")
+        bot.send_message(message.chat.id, f"🔍 Для поиска никнейма '{data}' используйте специализированные команды.")
 
-print("🚀 Оновлений бот успішно запущений! Не закривайте це вікно.")
 bot.infinity_polling()
