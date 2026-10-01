@@ -1,12 +1,3 @@
-Ось повний, готовий та оновлений код для osint_bot.py. У нього додано всі нові функції, які ми обговорювали:
- * 🌐 WHOIS / Інфо про домен (дата реєстрації, реєстратор, NS-сервери).
- * 🛡️ Перевірка посилань на фішинг/безпеку (перевірка редиректів та виявлення прихованих загрози).
- * 🔓 Розпакувальник скорочених посилань (URL Unshortener) (розкриває bit.ly, t.co, tinyurl тощо).
- * ⚡ Аналіз HTTP-заголовків та SSL (сервер, безпека, параметри).
- * 🔤 Декодер хешів та Base64 (автоматично визначає та розшифровує Base64, Hex, MD5, SHA-256).
- * 🎯 Генератор варіантів Email / Нікнеймів (Permutator) (створює варіації пошт та юзернеймів за ім'ям і прізвищем).
- * 📢 Адмін-розсилка /broadcast (дозволяє відправляти повідомлення усім користувачам бота).
-Також оновлено клавіатуру та головне меню бота.
 import os
 import re
 import io
@@ -227,7 +218,6 @@ def process_osint(message):
     bot.reply_to(message, f"⚙️ Починаю аналіз для: `{data}`...", parse_mode="Markdown")
 
     # 1. ДЕКОДЕР BASE64 ТА ХЕШІВ
-    # Base64 Check
     if len(data) % 4 == 0 and re.match(r'^[A-Za-z0-9+/]+={0,2}$', data) and len(data) > 8:
         try:
             import base64
@@ -238,7 +228,6 @@ def process_osint(message):
         except Exception:
             pass
 
-    # Хеші (MD5, SHA1, SHA256)
     if re.match(r'^[a-fA-F0-9]{32}$', data):
         bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `MD5`\n💡 Скористайтесь сервісом CrackStation для підбору значення.", parse_mode="Markdown")
         return
@@ -274,7 +263,6 @@ def process_osint(message):
             return
 
     # 3. КРИПТОГАМАНЦІ
-    # Bitcoin
     if re.match(r'^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,39}$', data):
         try:
             r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
@@ -286,13 +274,11 @@ def process_osint(message):
         except Exception:
             pass
 
-    # Ethereum / ERC-20
     if re.match(r'^0x[a-fA-F0-9]{40}$', data):
         text = f"🪙 **Ethereum/ERC20 Wallet:** `{data}`\n🔗 [Переглянути на Etherscan](https://etherscan.io/address/{data})"
         bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
         return
 
-    # TRON / TRC-20
     if re.match(r'^T[a-zA-Z0-9]{33}$', data):
         text = f"🪙 **Tron/TRC20 Wallet:** `{data}`\n🔗 [Переглянути на TronScan](https://tronscan.org/#/address/{data})"
         bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -370,7 +356,7 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 9. ГЕНЕРАТОР ВАРІАНТІВ ПОШТ ТА НІКНЕЙМІВ (Якщо введено ПІБ/Ім'я)
+    # 9. ГЕНЕРАТОР ВАРІАНТІВ ПОШТ ТА НІКНЕЙМІВ
     if " " in data and not data.startswith("@"):
         parts = data.split()
         if len(parts) >= 2:
@@ -422,4 +408,3 @@ except Exception:
     pass
 
 bot.infinity_polling(skip_pending=True)
-
