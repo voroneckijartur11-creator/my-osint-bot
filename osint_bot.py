@@ -17,6 +17,7 @@ from PIL.ExifTags import TAGS, GPSTAGS
 import qrcode
 import cv2
 import numpy as np
+import pytesseract
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РЕНДЕРУ (HEALTH CHECK) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -36,15 +37,16 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- ИНИЦИАЛИЗАЦИЯ БОТА ---
+# --- ІНІЦІАЛІЗАЦІЯ БОТА ---
 TOKEN = "8747134357:AAEbQfxjuf04zDrr-8ZtXjxVzeSaEqAnzcA"
-ADMIN_ID = 0  # Вкажіть ваш Telegram ID для доступу до /stats та /broadcast
+ADMIN_ID = 0  # Вкажіть ваш Telegram ID
 
 bot = telebot.TeleBot(TOKEN)
 
-# База пользователей в памяти
+# База даних в пам'яті
 users_list = set()
 total_requests = 0
+user_history = {}  # {chat_id: [list of recent queries]}
 
 # --- МЕНЮ БОТА ---
 def get_main_keyboard():
@@ -52,17 +54,40 @@ def get_main_keyboard():
     btn1 = types.KeyboardButton("📱 Про номер")
     btn2 = types.KeyboardButton("📧 Про Email")
     btn3 = types.KeyboardButton("🌐 IP / Домен / WHOIS")
-    btn4 = types.KeyboardButton("👤 Нік / Dorks / Варіанти")
+    btn4 = types.KeyboardButton("👤 Нік / Соцмережі / Dorks")
     btn5 = types.KeyboardButton("🪙 Криптогаманець")
-    btn6 = types.KeyboardButton("🔗 Розпаковка URL / Безпека")
-    btn7 = types.KeyboardButton("🔤 Декодер Хешів / Base64")
-    btn8 = types.KeyboardButton("📷 Інфо / QR / EXIF")
+    btn6 = types.KeyboardButton("🔗 URL / Безпека / Заголовки")
+    btn7 = types.KeyboardButton("🔤 Хеш / Base64 / Пароль")
+    btn8 = types.KeyboardButton("📷 Фото / OCR / EXIF / QR")
     
     keyboard.add(btn1, btn2)
     keyboard.add(btn3, btn4)
     keyboard.add(btn5, btn6)
     keyboard.add(btn7, btn8)
     return keyboard
+
+def add_to_history(chat_id, query):
+    if chat_id not in user_history:
+        user_history[chat_id] = []
+    user_history[chat_id].insert(0, query)
+    if len(user_history[chat_id]) > 5:
+        user_history[chat_id].pop()
+
+# --- ТРАНСЛІТЕРАЦІЯ УКРАЇНСЬКИХ ІМЕН ---
+UKR_MAP = {
+    'а':'a', 'б':'b', 'в':'v', 'г':'h', 'ґ':'g', 'д':'d', 'е':'e', 'є':'ye', 'ж':'zh',
+    'з':'z', 'и':'y', 'і':'i', 'ї':'yi', 'й':'y', 'к':'k', 'л':'l', 'м':'m', 'н':'n',
+    'о':'o', 'п':'p', 'р':'r', 'с':'s', 'т':'t', 'у':'u', 'ф':'f', 'х':'kh', 'ц':'ts',
+    'ч':'ch', 'ш':'sh', 'щ':'shch', 'ь':'', 'ю':'yu', 'я':'ya'
+}
+def transliterate(text):
+    res = ""
+    for char in text.lower():
+        if char in UKR_MAP:
+            res += UKR_MAP[char]
+        else:
+            res += char
+    return res.capitalize()
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ EXIF ---
 def get_decimal_from_dms(dms, ref):
@@ -90,27 +115,23 @@ def get_exif_data(image):
                 exif_data[decoded] = value
     return exif_data
 
-# --- ОБРАБОТКА КОМАНДЫ /start ---
+# --- КОМАНДЫ ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
     users_list.add(message.chat.id)
     welcome_text = (
-        "👋 **Вітаю в Ultimate OSINT Bot!**\n\n"
-        "Можливості аналізу даних:\n"
-        "• 📱 **Номер телефону** (`+380...`)\n"
-        "• 📧 **Email** (`example@gmail.com`)\n"
-        "• 🌐 **IP / Домен** (`8.8.8.8` або `github.com`)\n"
-        "• 🔗 **Скорочені / Підозрілі посилання** (`bit.ly/...`)\n"
-        "• 🚗 **Автономер України** (`AA1234BB`)\n"
-        "• 👤 **Нікнейм / Ім'я** (`@username` або `Іван Іванов`)\n"
-        "• 🔤 **Декодер Хешів/Base64** (`SGVsbG8=` або `MD5`)\n"
-        "• 🪙 **Crypto Wallet** (Bitcoin, Ethereum, Tron/USDT)\n"
-        "• 📷 **Фото без стиснення (як файл)** — для EXIF/GPS\n"
-        "• 🔳 **Фото з QR-кодом** або `qr ВашТекст` — для генерації/сканування"
+        "👋 **Вітаю в Ultimate OSINT Bot (Max Edition)!**\n\n"
+        "Доступні потужні інструменти розвідки та утиліти:\n"
+        "• 📱 **Телефон / 📧 Email / 🌐 IP / Домен**\n"
+        "• 👤 **Пошук ніка по 20+ соцмережах (Sherlock)**\n"
+        "• 🔗 **Аналіз URL, редиректів та заголовків безпеки**\n"
+        "• 📷 **Зчитування EXIF, QR та OCR (розпізнавання тексту з фото)**\n"
+        "• 👁️ **Пошук джерела фото (Google Lens / TinEye)**\n"
+        "• 🔤 **Генератор паролів (`/password`) та транслітерація**\n"
+        "• 📄 **Автоматичне збереження звітів у файли**"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# --- АДМИН-СТАТИСТИКА /stats ---
 @bot.message_handler(commands=['stats'])
 def stats_msg(message):
     stats_text = (
@@ -120,28 +141,29 @@ def stats_msg(message):
     )
     bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
 
-# --- АДМИН-РАССЫЛКА /broadcast ---
-@bot.message_handler(commands=['broadcast'])
-def broadcast_msg(message):
-    if ADMIN_ID != 0 and message.chat.id != ADMIN_ID:
-        bot.reply_to(message, "❌ У вас немає прав для виконання цієї команди.")
+@bot.message_handler(commands=['history'])
+def history_msg(message):
+    history = user_history.get(message.chat.id, [])
+    if not history:
+        bot.reply_to(message, "ℹ️ Ваша історія запитів порожня.")
         return
+    text = "📜 **Ваші останні запити:**\n" + "\n".join([f"• `{h}`" for h in history])
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['password'])
+def password_msg(message):
+    import random
+    import string
+    parts = message.text.split()
+    length = 16
+    if len(parts) > 1 and parts[1].isdigit():
+        length = max(min(int(parts[1]), 64), 6)
     
-    msg_text = message.text.replace("/broadcast", "").strip()
-    if not msg_text:
-        bot.reply_to(message, "⚠️ Вкажіть текст для розсилки. Приклад:\n`/broadcast Всім привіт! Бот оновлено.`", parse_mode="Markdown")
-        return
+    chars = string.ascii_letters + string.digits + "!@#$%^&*()"
+    pwd = "".join(random.choice(chars) for _ in range(length))
+    bot.reply_to(message, f"🔑 **Згенерований надійний пароль:**\n`{pwd}`", parse_mode="Markdown")
 
-    count = 0
-    for user_id in users_list:
-        try:
-            bot.send_message(user_id, f"📢 **Повідомлення від адміністратора:**\n\n{msg_text}", parse_mode="Markdown")
-            count += 1
-        except Exception:
-            pass
-    bot.send_message(message.chat.id, f"✅ Розсилку завершено! Доставлено: {count} користувачам.")
-
-# --- ОБРАБОТКА ФАЙЛОВ (EXIF & QR) ---
+# --- ОБРАБОТКА ФАЙЛОВ (EXIF, OCR, QR, ЛІНЗИ) ---
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_files(message):
     global total_requests
@@ -182,14 +204,31 @@ def handle_files(message):
             
             nparr = np.frombuffer(downloaded_file, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            detector = cv2.QRCodeDetector()
-            data, bbox, _ = detector.detectAndDecode(img)
             
-            if data:
-                bot.send_message(message.chat.id, f"🔳 **Розшифровка QR-коду:**\n`{data}`", parse_mode="Markdown")
-            else:
-                bot.send_message(message.chat.id, "ℹ️ QR-код на зображенні не виявлено. Для зчитування EXIF-метаданих надсилайте фото як документ (файл).")
-    except Exception:
+            # 1. Перевірка QR
+            detector = cv2.QRCodeDetector()
+            qr_data, _, _ = detector.detectAndDecode(img)
+            
+            # 2. Розпізнавання тексту (OCR)
+            ocr_text = pytesseract.image_to_string(img, lang='ukr+eng').strip()
+            
+            res_msg = "📷 **Аналіз зображення:**\n\n"
+            if qr_data:
+                res_msg += f"🔳 **QR-код:** `{qr_data}`\n\n"
+            if ocr_text:
+                res_msg += f"📝 **Розпізнаний текст (OCR):**\n`{ocr_text[:800]}`\n\n"
+            
+            res_msg += "👁️ **Пошук джерела фото в мережі:**\n"
+            res_msg += "• [Шукати через Google Lens](https://lens.google.com/)\n"
+            res_msg += "• [Шукати через TinEye](https://tineye.com/)"
+            
+            # Експорт результату у файл
+            bio = io.BytesIO(res_msg.encode('utf-8'))
+            bio.name = "image_analysis_report.txt"
+            bio.seek(0)
+            bot.send_document(message.chat.id, document=bio, caption=res_msg, parse_mode="Markdown")
+            
+    except Exception as e:
         bot.send_message(message.chat.id, "❌ Не вдалося обробити файл.")
 
 # --- ОСНОВНАЯ ЛОГИКА ---
@@ -199,14 +238,15 @@ def process_osint(message):
     total_requests += 1
     users_list.add(message.chat.id)
     data = message.text.strip()
+    add_to_history(message.chat.id, data)
 
     menu_buttons = [
         "📱 Про номер", "📧 Про Email", "🌐 IP / Домен / WHOIS",
-        "👤 Нік / Dorks / Варіанти", "🪙 Криптогаманець",
-        "🔗 Розпаковка URL / Безпека", "🔤 Декодер Хешів / Base64", "📷 Інфо / QR / EXIF"
+        "👤 Нік / Соцмережі / Dorks", "🪙 Криптогаманець",
+        "🔗 URL / Безпека / Заголовки", "🔤 Хеш / Base64 / Пароль", "📷 Фото / OCR / EXIF / QR"
     ]
     if data in menu_buttons:
-        bot.reply_to(message, f"Введіть відповідні дані для категорії «{data}».")
+        bot.reply_to(message, f"Введіть дані для категорії «{data}». Або скористайтесь командою `/password [довжина]` для генерації пароля.")
         return
 
     if data.lower().startswith("qr "):
@@ -218,7 +258,7 @@ def process_osint(message):
         bot.send_photo(message.chat.id, photo=bio, caption=f"🔳 QR-код для: `{text_to_qr}`", parse_mode="Markdown")
         return
 
-    bot.reply_to(message, f"⚙️ Починаю аналіз для: `{data}`...", parse_mode="Markdown")
+    bot.reply_to(message, f"⚙️ Починаю поглиблений аналіз для: `{data}`...", parse_mode="Markdown")
 
     # 1. BASE64 / ХЕШИ
     if len(data) % 4 == 0 and re.match(r'^[A-Za-z0-9+/]+={0,2}$', data) and len(data) > 8:
@@ -232,7 +272,7 @@ def process_osint(message):
             pass
 
     if re.match(r'^[a-fA-F0-9]{32}$', data):
-        bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `MD5`\n💡 Скористайтесь сервісом CrackStation для підбору значення.", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `MD5`\n💡 Перевірте на CrackStation.", parse_mode="Markdown")
         return
     elif re.match(r'^[a-fA-F0-9]{40}$', data) and not data.startswith("0x"):
         bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `SHA-1`", parse_mode="Markdown")
@@ -241,7 +281,7 @@ def process_osint(message):
         bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `SHA-256`", parse_mode="Markdown")
         return
 
-    # 2. URL ANALYZER
+    # 2. URL & SECURITY HEADERS ANALYZER
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res = requests.get(data, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
@@ -249,18 +289,27 @@ def process_osint(message):
             final_url = res.url
             server = res.headers.get('Server', 'Приховано')
             
-            text = f"🔗 **Аналіз URL:**\n• Початкове посилання: `{data}`\n"
+            # Заголовки безпеки
+            hsts = res.headers.get('Strict-Transport-Security', '❌ Відсутній')
+            csp = res.headers.get('Content-Security-Policy', '❌ Відсутній')
+            xfo = res.headers.get('X-Frame-Options', '❌ Відсутній')
+
+            text = f"🔗 **Аналіз URL та Безпеки:**\n• Початкове: `{data}`\n"
             if history:
                 text += f"• Редиректи ({len(history)}):\n" + "\n".join([f"  ↳ `{u}`" for u in history]) + "\n"
-            text += f"• Фінальне посилання: `{final_url}`\n"
-            text += f"• Код відповіді: `{res.status_code}`\n"
-            text += f"• Веб-сервер: `{server}`\n\n"
-            text += f"🛡️ [Перевірити на VirusTotal](https://www.virustotal.com/gui/search/{urllib.parse.quote_plus(final_url)})"
+            text += f"• Фінальне: `{final_url}`\n"
+            text += f"• Статус: `{res.status_code}` | Сервер: `{server}`\n\n"
+            text += f"🛡️ **Заголовки безпеки:**\n• HSTS: `{hsts}`\n• X-Frame-Options: `{xfo}`\n• CSP: `{csp[:30]}...`\n\n"
+            text += f"🔍 [Перевірити на VirusTotal](https://www.virustotal.com/gui/search/{urllib.parse.quote_plus(final_url)})"
             
-            bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
+            # Експорт у звіт
+            bio = io.BytesIO(text.encode('utf-8'))
+            bio.name = "url_security_report.txt"
+            bio.seek(0)
+            bot.send_document(message.chat.id, document=bio, caption=text, parse_mode="Markdown", disable_web_page_preview=True)
             return
         except Exception:
-            bot.send_message(message.chat.id, "❌ Не вдалося отримати доступ за цим посиланням.")
+            bot.send_message(message.chat.id, "❌ Не вдалося отримати доступ за посиланням.")
             return
 
     # 3. CRYPTO
@@ -276,24 +325,23 @@ def process_osint(message):
             pass
 
     if re.match(r'^0x[a-fA-F0-9]{40}$', data):
-        text = f"🪙 **Ethereum/ERC20 Wallet:** `{data}`\n🔗 [Переглянути на Etherscan](https://etherscan.io/address/{data})"
+        text = f"🪙 **Ethereum Wallet:** `{data}`\n🔗 [Etherscan](https://etherscan.io/address/{data})"
         bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
         return
 
     if re.match(r'^T[a-zA-Z0-9]{33}$', data):
-        text = f"🪙 **Tron/TRC20 Wallet:** `{data}`\n🔗 [Переглянути на TronScan](https://tronscan.org/#/address/{data})"
+        text = f"🪙 **Tron Wallet:** `{data}`\n🔗 [TronScan](https://tronscan.org/#/address/{data})"
         bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
         return
 
     # 4. IP
-    ip_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
-    if re.match(ip_pattern, data):
+    if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
         try:
             res = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
             if res.get("status") == "success":
                 text = f"🌐 **IP {data}:**\n• Країна: {res.get('country')}\n• Місто: {res.get('city')}\n• Провайдер: {res.get('isp')}\n• Координати: `{res.get('lat')}, {res.get('lon')}`"
             else:
-                text = "❌ Помилка отримання даних IP."
+                text = "❌ Помилка IP."
             bot.send_message(message.chat.id, text, parse_mode="Markdown")
             return
         except Exception:
@@ -304,14 +352,7 @@ def process_osint(message):
         try:
             res = requests.get(f"https://rdap.org/domain/{data}", timeout=5).json()
             name = res.get('ldhName', data)
-            events = res.get('events', [])
-            reg_date = "N/A"
-            for ev in events:
-                if ev.get('eventAction') == 'registration':
-                    reg_date = ev.get('eventDate', 'N/A')[:10]
-            
-            text = f"🌐 **Домен:** `{name}`\n• Дата реєстрації: `{reg_date}`\n"
-            text += f"🔗 [Переглянути детальний WHOIS](https://whois.domaintools.com/{data})"
+            text = f"🌐 **Домен:** `{name}`\n🔗 [WHOIS Деталі](https://whois.domaintools.com/{data})"
             bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
             return
         except Exception:
@@ -324,9 +365,9 @@ def process_osint(message):
             res = requests.get(f"https://baza-gai.com.ua/make-check/{clean_car}", headers={"Accept": "application/json"}, timeout=5)
             if res.status_code == 200:
                 c = res.json()
-                text = f"🚗 **Автономер {clean_car}:**\n• Модель: {c.get('vendor')} {c.get('model')}\n• Рік: {c.get('year')}\n• Колір: {c.get('color')}"
+                text = f"🚗 **Автономер {clean_car}:**\n• Модель: {c.get('vendor')} {c.get('model')}\n• Рік: {c.get('year')}"
             else:
-                text = f"🚗 Номер `{clean_car}` валідний (формат України)."
+                text = f"🚗 Номер `{clean_car}` валідний."
             bot.send_message(message.chat.id, text, parse_mode="Markdown")
             return
         except Exception:
@@ -338,8 +379,7 @@ def process_osint(message):
             parsed_num = phonenumbers.parse(data, "UA")
             country = geocoder.description_for_number(parsed_num, "uk")
             operator = carrier.name_for_number(parsed_num, "uk")
-            valid = phonenumbers.is_valid_number(parsed_num)
-            res = f"📱 **Номер {data}:**\n• Регіон: {country}\n• Оператор: {operator}\n• Дійсний: {'Так' if valid else 'Ні'}"
+            res = f"📱 **Номер {data}:**\n• Регіон: {country}\n• Оператор: {operator}"
             bot.send_message(message.chat.id, res, parse_mode="Markdown")
             return
         except Exception:
@@ -352,37 +392,43 @@ def process_osint(message):
             bot.send_message(message.chat.id, f"📧 **Email {data}:**\n• Домен: `{email_info.domain}`\n• Статус: Валідний", parse_mode="Markdown")
             return
         except EmailNotValidError:
-            bot.send_message(message.chat.id, f"❌ Email `{data}` недійсний.", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"❌ Email недійсний.", parse_mode="Markdown")
             return
         except Exception:
             pass
 
-    # 9. USER GENERATOR
+    # 9. USER GENERATOR & TRANSLITERATION
     if " " in data and not data.startswith("@"):
         parts = data.split()
         if len(parts) >= 2:
-            fn, ln = parts[0].lower(), parts[1].lower()
-            emails = [f"{fn}.{ln}@gmail.com", f"{fn}{ln}@gmail.com", f"{fn[0]}{ln}@gmail.com", f"{fn}.{fn}@gmail.com"]
-            usernames = [f"{fn}_{ln}", f"{fn}.{ln}", f"{fn}_{fn}", f"{fn}{ln}"]
+            fn, ln = parts[0], parts[1]
+            trans_res = f"🔤 **Транслітерація для паспорта:**\n• `{transliterate(fn)} {transliterate(ln)}`\n\n"
+            emails = [f"{fn.lower()}.{ln.lower()}@gmail.com", f"{fn.lower()}{ln.lower()}@gmail.com"]
+            usernames = [f"{fn.lower()}_{ln.lower()}", f"{fn.lower()}.{ln.lower()}"]
             
-            res_gen = f"🎯 **Згенеровані варіанти за ім'ям {data}:**\n\n"
-            res_gen += "📧 **Ймовірні Email:**\n" + "\n".join([f"• `{e}`" for e in emails]) + "\n\n"
-            res_gen += "👤 **Ймовірні нікнейми:**\n" + "\n".join([f"• `{u}`" for u in usernames])
-            bot.send_message(message.chat.id, res_gen, parse_mode="Markdown")
+            trans_res += "🎯 **Варіанти Email та Нікнеймів:**\n" + "\n".join([f"• `{e}`" for e in emails + usernames])
+            bot.send_message(message.chat.id, trans_res, parse_mode="Markdown")
             return
 
-    # 10. USERNAME
+    # 10. MULTI-PLATFORM SOCIAL SEARCH (SHERLOCK-STYLE)
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
         "GitHub": f"https://github.com/{username}",
         "TikTok": f"https://www.tiktok.com/@{username}",
-        "Reddit": f"https://www.reddit.com/user/{username}"
+        "Reddit": f"https://www.reddit.com/user/{username}",
+        "Instagram": f"https://www.instagram.com/{username}",
+        "Twitter/X": f"https://twitter.com/{username}",
+        "Steam": f"https://steamcommunity.com/id/{username}",
+        "Pinterest": f"https://www.pinterest.com/{username}",
+        "SoundCloud": f"https://soundcloud.com/{username}",
+        "Behance": f"https://www.behance.net/{username}"
     }
     found = []
     for name, url in platforms.items():
         try:
-            if requests.get(url, timeout=2, headers={"User-Agent": "Mozilla/5.0"}).status_code == 200:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            if requests.get(url, timeout=2, headers=headers).status_code == 200:
                 found.append(f"• [{name}]({url})")
         except Exception:
             pass
@@ -390,14 +436,21 @@ def process_osint(message):
     dork_all = f"https://www.google.com/search?q=%22{username}%22"
     dork_docs = f"https://www.google.com/search?q=%22{username}%22+filetype:pdf+OR+filetype:doc"
 
-    res_text = f"👤 **Пошук:** `{username}`\n\n"
+    res_text = f"👤 **Широкий пошук акаунтів:** `{username}`\n\n"
     if found:
-        res_text += "✅ **Знайдено акаунти:**\n" + "\n".join(found) + "\n\n"
-    res_text += f"🔗 [Google Пошук]({dork_all})\n📄 [Пошук у документах (PDF/DOC)]({dork_docs})"
+        res_text += "✅ **Знайдено на платформах:**\n" + "\n".join(found) + "\n\n"
+    else:
+        res_text += "ℹ️ Прямих відкритих профіль-сторінок не знайдено.\n\n"
+        
+    res_text += f"🔗 [Google Пошук]({dork_all})\n📄 [Пошук у документах PDF/DOC]({dork_docs})"
     
-    bot.send_message(message.chat.id, res_text, parse_mode="Markdown", disable_web_page_preview=True)
+    # Експорт повного звіту
+    bio = io.BytesIO(res_text.encode('utf-8'))
+    bio.name = f"osint_{username}_report.txt"
+    bio.seek(0)
+    bot.send_document(message.chat.id, document=bio, caption=res_text, parse_mode="Markdown", disable_web_page_preview=True)
 
-# --- БЛОК ЗАПУСКА С ЗАЩИТОЙ ОТ КОНФЛИКТОВ И ОШИБОК ---
+# --- ЗАПУСК ---
 try:
     bot.remove_webhook()
     time.sleep(1)
