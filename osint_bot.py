@@ -22,12 +22,12 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # Инициализация бота
-TOKEN = "8747134357:AAEFUq7ufrregIntvlD-E_HI_TKONlwCQ4M"
+TOKEN = "8747134357:AAGA5rpd-_sudqmlNJf_QvmCI0K0fRliM5I"
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
 def start_msg(message):
-    bot.reply_to(message, "Привет! Я твой быстрый и бесплатный OSINT-бот.\n\nОтправь мне номер телефона или email.")
+    bot.reply_to(message, "Привет! Я твой  OSINT-бот.\n\nОтправь мне номер телефона или email.")
 
 @bot.message_handler(func=lambda message: True)
 def process_osint(message):
