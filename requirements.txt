@@ -1,4 +1,7 @@
- pyTelegramBotAPI
+pyTelegramBotAPI
 phonenumbers
 email-validator
 requests
+Pillow
+qrcode
+opencv-python-headless
