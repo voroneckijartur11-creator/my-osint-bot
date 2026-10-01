@@ -7,3 +7,6 @@ qrcode
 opencv-python-headless
 numpy
 pytesseract
+pypdf
+python-docx
+openpyxl
