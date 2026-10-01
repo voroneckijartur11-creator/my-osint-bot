@@ -31,7 +31,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
-TOKEN = "8747134357:AAGASrpd-_sudqm1NJf_QvmCI0K0FR1iM5I"
+TOKEN = "8747134357:AAEl8oJKM0La7adQsEmcJncby3xkrqJgbXA"
 ADMIN_ID = 0  # Вкажіть свій Telegram ID (наприклад: 123456789), щоб мати доступ до /stats
 
 bot = telebot.TeleBot(TOKEN)
