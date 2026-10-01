@@ -38,7 +38,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
-TOKEN = "8747134357:AAEbQfxjuf04zDrr-8ZtXjxVzeSaEqAnzcA"
+TOKEN = "8747134357:AAGxNChrCq-M6TEMisTfUPZX3W7OeqDYck0"
 bot = telebot.TeleBot(TOKEN)
 
 users_list = set()
