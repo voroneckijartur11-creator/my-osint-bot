@@ -64,12 +64,13 @@ def get_main_keyboard():
     btn7 = types.KeyboardButton("🚗 Авто (Номер / VIN)")
     btn8 = types.KeyboardButton("📷 Фото / Документи / OCR")
     btn9 = types.KeyboardButton("🛠️ Утиліти / Хеші / Base64")
+    btn10 = types.KeyboardButton("⛽ Комісії / Газ мереж")
     
     keyboard.add(btn1, btn2)
     keyboard.add(btn3, btn4)
     keyboard.add(btn5, btn6)
     keyboard.add(btn7, btn8)
-    keyboard.add(btn9)
+    keyboard.add(btn9, btn10)
     return keyboard
 
 def add_to_history(chat_id, query, result_text=""):
@@ -121,7 +122,7 @@ def start_msg(message):
         "• 🚗 Перевірка авто за номером та VIN (NHTSA)\n"
         "• 🔗 Аналіз URL, редиректів та HSTS заголовків\n"
         "• 📷 EXIF з GPS-картами, OCR, аналіз PDF/DOCX\n"
-        "• 🪙 Мультикрипта (BTC, ETH, TRON, TON, LTC, DOGE)\n"
+        "• 🪙 Мультикрипта та моніторинг комісій (Газу) мереж\n"
         "• 🛠️ Утиліти: Генератор паролів, Base64, Хеші, звітність"
     )
     markup = types.InlineKeyboardMarkup()
@@ -173,7 +174,6 @@ def handle_files(message):
             downloaded_file = bot.download_file(file_info.file_path)
             file_name = message.document.file_name.lower()
             
-            # Якщо це зображення як документ (для EXIF)
             if file_name.endswith(('.jpg', '.jpeg', '.png')):
                 image = Image.open(io.BytesIO(downloaded_file))
                 exif = get_exif_data(image)
@@ -191,7 +191,6 @@ def handle_files(message):
                 add_to_history(message.chat.id, f"Document Photo: {file_name}", exif_res)
                 bot.send_message(message.chat.id, exif_res, parse_mode="Markdown")
                 
-            # Аналіз PDF
             elif file_name.endswith('.pdf'):
                 reader = pypdf.PdfReader(io.BytesIO(downloaded_file))
                 meta = reader.metadata
@@ -200,7 +199,6 @@ def handle_files(message):
                 add_to_history(message.chat.id, f"PDF: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
 
-            # Аналіз DOCX
             elif file_name.endswith('.docx'):
                 doc = docx.Document(io.BytesIO(downloaded_file))
                 props = doc.core_properties
@@ -208,7 +206,6 @@ def handle_files(message):
                 add_to_history(message.chat.id, f"DOCX: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
 
-            # Аналіз XLSX
             elif file_name.endswith('.xlsx'):
                 wb = openpyxl.load_workbook(io.BytesIO(downloaded_file), read_only=True)
                 sheets = wb.sheetnames
@@ -248,7 +245,34 @@ def process_osint(message):
     users_list.add(message.chat.id)
     data = message.text.strip()
 
-    if data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "🚗 Авто (Номер / VIN)", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64"]:
+    if data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "🚗 Авто (Номер / VIN)", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64", "⛽ Комісії / Газ мереж"]:
+        if data == "⛽ Комісії / Газ мереж":
+            try:
+                btc_data = requests.get("https://mempool.space/api/v1/fees/recommended", timeout=4).json()
+                eth_data = requests.get("https://api.owlracle.info/v4/eth/gas", timeout=4).json()
+                
+                btc_fast = btc_data.get('fastestFee', 'N/A')
+                btc_med = btc_data.get('halfHourFee', 'N/A')
+                
+                eth_fast = eth_data.get('speeds', [{}])[0].get('maxFeePerGas', 'N/A')
+                
+                res = (
+                    "⛽ **Актуальні комісії у мережах (Газ):**\n\n"
+                    f"🟠 **Bitcoin (mempool):**\n"
+                    f"• Швидко: `{btc_fast} sat/vB`\n"
+                    f"• Середньо: `{btc_med} sat/vB`\n\n"
+                    f"🔵 **Ethereum (EVM Gas):**\n"
+                    f"• Швидкий газ: `{eth_fast} Gwei`\n\n"
+                    f"🟢 **TRON (USDT TRC-20):**\n"
+                    f"• Стандартна транзакція: `~32-65 TRX` (без енергії) / `~14 TRX` (з енергією)"
+                )
+            except Exception:
+                res = "⛽ **Комісії мереж:**\nНе вдалося отримати свіжі дані через зовнішні API. Спробуйте пізніше."
+            
+            add_to_history(message.chat.id, data, res)
+            bot.send_message(message.chat.id, res, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            return
+        
         bot.reply_to(message, f"Введіть дані для категорії «{data}».")
         return
 
@@ -325,7 +349,6 @@ def process_osint(message):
         except Exception:
             pass
     elif "." in data and " " not in data:
-        # Перевірка сабдоменів через crt.sh
         domain = data.replace("https://", "").replace("http://", "").strip("/")
         subdomains = []
         try:
@@ -396,7 +419,7 @@ def process_osint(message):
         bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 6. ТЕЛЕФОН ТА EMAIL (з перевіркою витоків HaveIBeenPwned API)
+    # 6. ТЕЛЕФОН ТА EMAIL
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         num = phonenumbers.parse(data, "UA")
         text = f"📱 **Номер телефону:** `{data}`\n• Країна/Регіон: {geocoder.description_for_number(num, 'uk')}\n• Мобільний оператор: {carrier.name_for_number(num, 'uk')}\n• Валідний: Так"
