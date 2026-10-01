@@ -31,7 +31,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
-TOKEN = "8747134357:AAGASrpd-_sudqm1NJf_QvmCI0K0FR1iM5I"
+TOKEN = "8747134357:AAHqkHA7H7fU_WT5yf0cra5XUzih_l58Owk"
 ADMIN_ID = 0  # Вкажіть свій Telegram ID, щоб мати доступ до /stats
 
 bot = telebot.TeleBot(TOKEN)
@@ -185,7 +185,7 @@ def process_osint(message):
         bot.send_photo(message.chat.id, photo=bio, caption=f"🔳 QR-код для: `{text_to_qr}`", parse_mode="Markdown")
         return
 
-    bot.reply_to(message, f"⚙️️ Починаю миттєвий пошук для: `{data}`...", parse_mode="Markdown")
+    bot.reply_to(message, f"⚙️ Починаю миттєвий пошук для: `{data}`...", parse_mode="Markdown")
 
     # 1. ПЕРЕВІРКА КРИПТОГАМАНЦІВ
     # Bitcoin
