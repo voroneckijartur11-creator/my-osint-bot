@@ -1,3 +1,4 @@
-pyTelegramBotAPI
+ pyTelegramBotAPI
 phonenumbers
 email-validator
+requests
