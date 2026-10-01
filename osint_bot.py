@@ -1,64 +1,86 @@
-import os
-import threading
-import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import telebot
-import phonenumbers
-from phonenumbers import geocoder, carrier
-from email_validator import validate_email, EmailNotValidError
+f"• Марка/Модель: {car_data.get('vendor')} {car_data.get('model')}\n"
+                    f"• Рік випуску: {car_data.get('year', 'N/A')}\n"
+                    f"• Колір: {car_data.get('color', 'N/A')}\n"
+                    f"• Об'єм двигуна: {car_data.get('displacement', 'N/A')} см³"
+                )
+            else:
+                text = f"🚗 Автономер {clean_car_num} відповідає формату номерних знаків України. Деталі в базі не знайдено."
+            bot.send_message(message.chat.id, text, parse_mode="Markdown")
+            return
+        except Exception:
+            bot.send_message(message.chat.id, f"🚗 Автономер {clean_car_num} має правильний формат.")
+            return
 
-# Веб-сервер для поддержки Render
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-def run_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
-
-threading.Thread(target=run_health_server, daemon=True).start()
-
-# Инициализация бота
-TOKEN = "8747134357:AAEV2RzAKK2JD-Wf8b20pxiTmWVCGMY_dPY"
-bot = telebot.TeleBot(TOKEN)
-
-@bot.message_handler(commands=['start'])
-def start_msg(message):
-    bot.reply_to(message, "Привет! Я твой  OSINT-бот.\n\nОтправь мне номер телефона или email.")
-
-@bot.message_handler(func=lambda message: True)
-def process_osint(message):
-    data = message.text.strip()
-    bot.reply_to(message, f"⚙️ Начинаю мгновенный поиск для: {data}...")
-    
-    # Поиск по номеру телефона
-    if data.startswith('+') or (data.isdigit() and len(data) > 9):
+    # 3. ПЕРЕВІРКА НОМЕРА ТЕЛЕФОНУ
+    if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         try:
             parsed_num = phonenumbers.parse(data, "UA")
             country = geocoder.description_for_number(parsed_num, "uk")
             operator = carrier.name_for_number(parsed_num, "uk")
             valid = phonenumbers.is_valid_number(parsed_num)
             
-            res = f"📱 Результат по номеру {data}:\n• Страна/Регион: {country if country else 'Неизвестно'}\n• Оператор: {operator if operator else 'Неизвестно'}\n• Статус: {'Действителен' if valid else 'Недействителен'}"
-            bot.send_message(message.chat.id, res)
+            res = (
+                f"📱 Результат по номеру {data}:\n"
+                f"• Країна/Регіон: {country if country else 'Невідомо'}\n"
+                f"• Оператор: {operator if operator else 'Невідомо'}\n"
+                f"• Статус: {'Дійсний' if valid else 'Недійсний'}"
+            )
+            bot.send_message(message.chat.id, res, parse_mode="Markdown")
+            return
         except Exception:
-            bot.send_message(message.chat.id, "❌ Ошибка анализа номера. Проверьте формат (+380...).")
-            
-    # Поиск по Email
+            bot.send_message(message.chat.id, "❌ Помилка аналізу номера. Перевірте формат (+380...).")
+            return
+
+    # 4. ПЕРЕВІРКА EMAIL
     elif "@" in data:
         try:
             email_info = validate_email(data, check_deliverability=True)
             domain = email_info.domain
-            bot.send_message(message.chat.id, f"📧 Результат по email {data}:\n• Домен: {domain}\n• Статус: Формат и почтовый сервер действительны!")
+            bot.send_message(
+                message.chat.id, 
+                f"📧 Результат по email {data}:\n• Домен: {domain}\n• Статус: Формат і поштовий сервер дійсні!",
+                parse_mode="Markdown"
+            )
+            return
         except EmailNotValidError as e:
-            bot.send_message(message.chat.id, f"❌ Почта {data} недействительна или не существует.")
+            bot.send_message(message.chat.id, f"❌ Пошта {data} недійсна або не існує.", parse_mode="Markdown")
+            return
         except Exception:
-            bot.send_message(message.chat.id, f"📧 Результат по email {data}:\n• Формат правильный, домен активен.")
-            
+            bot.send_message(message.chat.id, f"📧 Результат по email {data}:\n• Формат правильний.", parse_mode="Markdown")
+            return
+
+    # 5. ПОШУК НІКНЕЙМУ В СОЦМЕРЕЖАХ ТА ГУГЛ-ДОРКИ
     else:
-        bot.send_message(message.chat.id, f"🔍 Для поиска никнейма '{data}' используйте специализированные команды.")
+        username = data.lstrip('@')
+        bot.send_message(message.chat.id, f"🔍 Шукаю профіль {username} у соцмережах...", parse_mode="Markdown")
+        
+        platforms = {
+            "Telegram": f"https://t.me/{username}",
+            "GitHub": f"https://github.com/{username}",
+            "TikTok": f"https://www.tiktok.com/@{username}",
+            "Reddit": f"https://www.reddit.com/user/{username}",
+            "Pinterest": f"https://www.pinterest.com/{username}/"
+        }
+        
+        found = []
+        for name, url in platforms.items():
+            try:
+                r = requests.get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
+                if r.status_code == 200:
+                    found.append(f"• [{name}]({url})")
+            except Exception:
+                pass
+
+        google_dork = f"https://www.google.com/search?q=%22{username}%22"
+        
+        res_text = f"👤 Пошук для нікнейму: {username}\n\n"
+        if found:
+            res_text += "✅ Знайдено можливі профілі:\n" + "\n".join(found) + "\n\n"
+        else:
+            res_text += "ℹ️ Прямих співпадінь на базових платформах не знайдено.\n\n"
+            
+        res_text += f"🔗 [Запустити пошук у Google Dorks]({google_dork})"
+        
+        bot.send_message(message.chat.id, res_text, parse_mode="Markdown", disable_web_page_preview=True)
 
 bot.infinity_polling()
