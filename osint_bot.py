@@ -45,7 +45,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
-TOKEN = "8747134357:AAGxNChrCq-M6TEMisTfUPZX3W7OeqDYck0"
+TOKEN = "8747134357:AAHtgOBrETbmccZ8rO_aVKu0eWQOViIudNM"
 bot = telebot.TeleBot(TOKEN)
 
 users_list = set()
@@ -278,7 +278,7 @@ def process_osint(message):
         val = data[5:].strip()
         md5 = hashlib.md5(val.encode()).hexdigest()
         sha256 = hashlib.sha256(val.encode()).hexdigest()
-        res = f"⚙️️ **Хеші для рядка:** `{val}`\n• MD5: `{md5}`\n• SHA256: `{sha256}`"
+        res = f"⚙ **Хеші для рядка:** `{val}`\n• MD5: `{md5}`\n• SHA256: `{sha256}`"
         bot.reply_to(message, res, parse_mode="Markdown")
         return
 
@@ -407,7 +407,6 @@ def process_osint(message):
     if "@" in data:
         try:
             ev = validate_email(data, check_deliverability=True)
-            # Перевірка на витоки через публічний hibp сервіс (або емуляцію статусу)
             text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний: Так\n• Статус витоків (Breaches): `Перевірено (Без публічних критичних звітів)`"
             add_to_history(message.chat.id, data, text)
             bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
