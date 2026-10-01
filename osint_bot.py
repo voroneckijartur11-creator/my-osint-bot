@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import time
 import threading
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -24,6 +25,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"OK")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
@@ -31,13 +36,13 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- ІНІЦІАЛІЗАЦІЯ БОТА ---
+# --- ИНИЦИАЛИЗАЦИЯ БОТА ---
 TOKEN = "8747134357:AAHqkHA7H7fU_WT5yf0cra5XUzih_l58Owk"
-ADMIN_ID = 0  # Вкажіть свій Telegram ID, щоб мати доступ до /stats та /broadcast
+ADMIN_ID = 0  # Укажите ваш Telegram ID для доступа к /stats и /broadcast
 
 bot = telebot.TeleBot(TOKEN)
 
-# База користувачів у пам'яті
+# База пользователей в памяти
 users_list = set()
 total_requests = 0
 
@@ -59,7 +64,7 @@ def get_main_keyboard():
     keyboard.add(btn7, btn8)
     return keyboard
 
-# --- ДОПОМІЖНІ ФУНКЦІЇ EXIF ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ EXIF ---
 def get_decimal_from_dms(dms, ref):
     degrees = dms[0]
     minutes = dms[1]
@@ -85,7 +90,7 @@ def get_exif_data(image):
                 exif_data[decoded] = value
     return exif_data
 
-# --- ОБРОБКА КОМАНДИ /start ---
+# --- ОБРАБОТКА КОМАНДЫ /start ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
     users_list.add(message.chat.id)
@@ -105,7 +110,7 @@ def start_msg(message):
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# --- АДМІН-СТАТИСТИКА /stats ---
+# --- АДМИН-СТАТИСТИКА /stats ---
 @bot.message_handler(commands=['stats'])
 def stats_msg(message):
     stats_text = (
@@ -115,7 +120,7 @@ def stats_msg(message):
     )
     bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
 
-# --- АДМІН-РОЗСИЛКА /broadcast ---
+# --- АДМИН-РАССЫЛКА /broadcast ---
 @bot.message_handler(commands=['broadcast'])
 def broadcast_msg(message):
     if ADMIN_ID != 0 and message.chat.id != ADMIN_ID:
@@ -136,7 +141,7 @@ def broadcast_msg(message):
             pass
     bot.send_message(message.chat.id, f"✅ Розсилку завершено! Доставлено: {count} користувачам.")
 
-# --- ОБРОБКА ФОТО ТА ДОКУМЕНТІВ (EXIF & QR) ---
+# --- ОБРАБОТКА ФАЙЛОВ (EXIF & QR) ---
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_files(message):
     global total_requests
@@ -187,7 +192,7 @@ def handle_files(message):
     except Exception:
         bot.send_message(message.chat.id, "❌ Не вдалося обробити файл.")
 
-# --- ОСНОВНА ЛОГІКА ТЕКСТОВИХ ЗАПИТІВ ---
+# --- ОСНОВНАЯ ЛОГИКА ---
 @bot.message_handler(func=lambda message: True)
 def process_osint(message):
     global total_requests
@@ -195,7 +200,6 @@ def process_osint(message):
     users_list.add(message.chat.id)
     data = message.text.strip()
 
-    # Підказки для кнопок меню
     menu_buttons = [
         "📱 Про номер", "📧 Про Email", "🌐 IP / Домен / WHOIS",
         "👤 Нік / Dorks / Варіанти", "🪙 Криптогаманець",
@@ -205,7 +209,6 @@ def process_osint(message):
         bot.reply_to(message, f"Введіть відповідні дані для категорії «{data}».")
         return
 
-    # Генерація QR-коду
     if data.lower().startswith("qr "):
         text_to_qr = data[3:].strip()
         img = qrcode.make(text_to_qr)
@@ -217,7 +220,7 @@ def process_osint(message):
 
     bot.reply_to(message, f"⚙️ Починаю аналіз для: `{data}`...", parse_mode="Markdown")
 
-    # 1. ДЕКОДЕР BASE64 ТА ХЕШІВ
+    # 1. BASE64 / ХЕШИ
     if len(data) % 4 == 0 and re.match(r'^[A-Za-z0-9+/]+={0,2}$', data) and len(data) > 8:
         try:
             import base64
@@ -238,15 +241,13 @@ def process_osint(message):
         bot.send_message(message.chat.id, f"🔤 **Тип хешу:** `SHA-256`", parse_mode="Markdown")
         return
 
-    # 2. РОЗПАКУВАННЯ ПОСИЛАНЬ ТА АНАЛІЗ HTTP/SSL
+    # 2. URL ANALYZER
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res = requests.get(data, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
             history = [resp.url for resp in res.history]
             final_url = res.url
-            
-            headers = res.headers
-            server = headers.get('Server', 'Приховано')
+            server = res.headers.get('Server', 'Приховано')
             
             text = f"🔗 **Аналіз URL:**\n• Початкове посилання: `{data}`\n"
             if history:
@@ -262,7 +263,7 @@ def process_osint(message):
             bot.send_message(message.chat.id, "❌ Не вдалося отримати доступ за цим посиланням.")
             return
 
-    # 3. КРИПТОГАМАНЦІ
+    # 3. CRYPTO
     if re.match(r'^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,39}$', data):
         try:
             r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
@@ -284,7 +285,7 @@ def process_osint(message):
         bot.send_message(message.chat.id, text, parse_mode="Markdown", disable_web_page_preview=True)
         return
 
-    # 4. IP-АДРЕСА
+    # 4. IP
     ip_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
     if re.match(ip_pattern, data):
         try:
@@ -298,7 +299,7 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 5. ДОМЕН ТА WHOIS
+    # 5. DOMAIN
     if re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', data):
         try:
             res = requests.get(f"https://rdap.org/domain/{data}", timeout=5).json()
@@ -316,7 +317,7 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 6. АВТОНОМЕР УКРАЇНИ
+    # 6. CAR NUMBER
     clean_car = data.replace(" ", "").upper()
     if re.match(r'^[A-ZА-ЯІЇЄ]{2}\d{4}[A-ZА-ЯІЇЄ]{2}$', clean_car):
         try:
@@ -331,7 +332,7 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 7. НОМЕР ТЕЛЕФОНУ
+    # 7. PHONE
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         try:
             parsed_num = phonenumbers.parse(data, "UA")
@@ -356,17 +357,12 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 9. ГЕНЕРАТОР ВАРІАНТІВ ПОШТ ТА НІКНЕЙМІВ
+    # 9. USER GENERATOR
     if " " in data and not data.startswith("@"):
         parts = data.split()
         if len(parts) >= 2:
             fn, ln = parts[0].lower(), parts[1].lower()
-            emails = [
-                f"{fn}.{ln}@gmail.com",
-                f"{fn}{ln}@gmail.com",
-                f"{fn[0]}{ln}@gmail.com",
-                f"{ln}.{fn}@gmail.com"
-            ]
+            emails = [f"{fn}.{ln}@gmail.com", f"{fn}{ln}@gmail.com", f"{fn[0]}{ln}@gmail.com", f"{ln}.{fn}@gmail.com"]
             usernames = [f"{fn}_{ln}", f"{fn}.{ln}", f"{ln}_{fn}", f"{fn}{ln}"]
             
             res_gen = f"🎯 **Згенеровані варіанти за ім'ям {data}:**\n\n"
@@ -375,7 +371,7 @@ def process_osint(message):
             bot.send_message(message.chat.id, res_gen, parse_mode="Markdown")
             return
 
-    # 10. НІКНЕЙМ ТА GOOGLE DORKS
+    # 10. USERNAME
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
@@ -401,9 +397,10 @@ def process_osint(message):
     
     bot.send_message(message.chat.id, res_text, parse_mode="Markdown", disable_web_page_preview=True)
 
-# --- БЛОК ЗАПУСКУ З ЗАХИСТОМ ВІД КОНФЛІКТІВ ---
+# --- БЛОК ЗАПУСКА С ЗАЩИТОЙ ОТ КОНФЛИКТОВ И ОШИБОК ---
 try:
     bot.remove_webhook()
+    time.sleep(1)
 except Exception:
     pass
 
