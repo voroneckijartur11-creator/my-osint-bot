@@ -1,11 +1,4 @@
-f"• Марка/Модель: {car_data.get('vendor')} {car_data.get('model')}\n"
-                    f"• Рік випуску: {car_data.get('year', 'N/A')}\n"
-                    f"• Колір: {car_data.get('color', 'N/A')}\n"
-                    f"• Об'єм двигуна: {car_data.get('displacement', 'N/A')} см³"
-                )
-            else:
-                text = f"🚗 Автономер {clean_car_num} відповідає формату номерних знаків України. Деталі в базі не знайдено."
-            bot.send_message(message.chat.id, text, parse_mode="Markdown")
+bot.send_message(message.chat.id, text, parse_mode="Markdown")
             return
         except Exception:
             bot.send_message(message.chat.id, f"🚗 Автономер {clean_car_num} має правильний формат.")
@@ -19,12 +12,7 @@ f"• Марка/Модель: {car_data.get('vendor')} {car_data.get('model')}\
             operator = carrier.name_for_number(parsed_num, "uk")
             valid = phonenumbers.is_valid_number(parsed_num)
             
-            res = (
-                f"📱 Результат по номеру {data}:\n"
-                f"• Країна/Регіон: {country if country else 'Невідомо'}\n"
-                f"• Оператор: {operator if operator else 'Невідомо'}\n"
-                f"• Статус: {'Дійсний' if valid else 'Недійсний'}"
-            )
+            res = f"📱 Результат по номеру {data}:\n• Країна/Регіон: {country if country else 'Невідомо'}\n• Оператор: {operator if operator else 'Невідомо'}\n• Статус: {'Дійсний' if valid else 'Недійсний'}"
             bot.send_message(message.chat.id, res, parse_mode="Markdown")
             return
         except Exception:
@@ -42,7 +30,7 @@ f"• Марка/Модель: {car_data.get('vendor')} {car_data.get('model')}\
                 parse_mode="Markdown"
             )
             return
-        except EmailNotValidError as e:
+        except EmailNotValidError:
             bot.send_message(message.chat.id, f"❌ Пошта {data} недійсна або не існує.", parse_mode="Markdown")
             return
         except Exception:
