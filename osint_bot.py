@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
-# Новий токен вашого бота
+# Токен вашого бота
 TOKEN = "8856195541:AAGZHXEPKMVcb7CwE2EHOXzk8NImTdKfOzY"
 
 # 1. Міні-сервер для задоволення вимог Render до портів (Health Check)
@@ -64,7 +64,8 @@ async def cmd_start(message: Message):
         reply_markup=get_main_keyboard()
     )
 
-@router.message(Command("myhistory") | (F.text == "📜 Моя історія"))
+@router.message(Command("myhistory"))
+@router.message(F.text == "📜 Моя історія")
 async def cmd_history(message: Message):
     db_cursor.execute('SELECT query, timestamp FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 10', (message.chat.id,))
     history = db_cursor.fetchall()
@@ -95,10 +96,10 @@ async def process_osint(message: Message):
     ]
     
     if data in categories:
-        await message.answer(f"ℹ️ Ви обрали категорію: *{data}*.\nНадішліть дані для перевірки у наступному повідомленні:", parse_mode="Markdown", reply_markup=get_main_keyboard())
+        await message.answer(f"ℹ️️ Ви обрали категорію: *{data}*.\nНадішліть дані для перевірки у наступному повідомленні:", parse_mode="Markdown", reply_markup=get_main_keyboard())
         return
 
-    # Тут формується результат перевірки запиту
+    # Формування результату перевірки запиту
     res = f"🔍 **Результат перевірки:**\n• Запит: `{data}`\n• Статус: Дані успішно оброблено."
     
     db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, data, res))
@@ -107,7 +108,6 @@ async def process_osint(message: Message):
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 async def main():
-    # Очищуємо будь-які старі вебхуки та очікуємо вхідних подій
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(1)
     print("New bot started polling successfully...")
