@@ -1,9 +1,4 @@
 aiogram>=3.0.0
-requests
-pypdf
-opencv-python-headless
-numpy
-pytesseract
+Pillow
+reportlab
 qrcode
-python-docx
-openpyxl
