@@ -14,17 +14,16 @@ from aiogram.types import (
     Message,
 )
 import aiohttp
-import qrcode
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-# Настройка логирования
+# Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Новый актуальный токен вашего бота
+# Новий актуальний токен вашого бота
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
 
-# Инициализация базы данных SQLite
+# Ініціалізація бази даних SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -63,13 +62,13 @@ def save_history(user_id, q_type, q_data):
     conn.commit()
     conn.close()
 
-# Состояния для FSM
+# Стани для FSM
 class OSINTStates(StatesGroup):
     waiting_for_input = State()
 
 router = Router()
 
-# Главное меню с кнопками
+# Головне меню з кнопками
 def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -119,7 +118,6 @@ async def cmd_admin(message: Message):
         parse_mode="Markdown"
     )
 
-# Обработка нажатий кнопок категорий
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category_map = {
@@ -139,7 +137,6 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"ℹ️ Обрано модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
 
-# Реальная логика обработки данных
 @router.message(OSINTStates.waiting_for_input)
 async def handle_osint_query(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -227,7 +224,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
     await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True)
     await state.clear()
 
-# История
 @router.callback_query(F.data == "my_history")
 async def show_history(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -246,7 +242,6 @@ async def show_history(callback: CallbackQuery):
         await callback.message.answer(text, parse_mode="Markdown")
     await callback.answer()
 
-# PDF генерация
 @router.callback_query(F.data == "gen_pdf")
 async def generate_pdf(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -269,7 +264,10 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
 
+    # Примусово скидаємо старі вебхуки та залишки сесій getUpdates
+    await bot.delete_webhook(drop_pending_updates=True)
     logging.info("Super-bot started polling successfully...")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
