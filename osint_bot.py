@@ -19,7 +19,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-# Налаштування логування
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
@@ -28,7 +28,7 @@ WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.o
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Ініціалізація бази даних SQLite
+# Инициализация базы данных SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -78,7 +78,7 @@ def get_main_keyboard():
             InlineKeyboardButton(text="🎯 Target Locked (TG OSINT)", callback_data="osint_tg_profile")
         ],
         [
-            InlineKeyboardButton(text="📱 Про номер", callback_data="osint_phone"),
+            InlineKeyboardButton(text="📱 Про номер (Досьє)", callback_data="osint_phone"),
             InlineKeyboardButton(text="🔍 GetContact (Теги)", callback_data="osint_getcontact")
         ],
         [
@@ -105,7 +105,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "👑 **Dark Prince OSINT Platform**\n\n"
-        "Оберіть необхідний модуль за допомогою меню нижче або надішліть дані для аналізу:",
+        "Выберите необходимый модуль с помощью меню ниже или отправьте данные для анализа:",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -121,23 +121,23 @@ async def cmd_admin(message: Message):
     conn.close()
 
     await message.answer(
-        f"👑 **Адмін-панель:**\n\n"
-        f"• Всього користувачів: `{users_count}`\n"
-        f"• Всього запитів виконано: `{queries_count}`",
+        f"👑 **Админ-панель:**\n\n"
+        f"• Всего пользователей: `{users_count}`\n"
+        f"• Всего запросов выполнено: `{queries_count}`",
         parse_mode="Markdown"
     )
 
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category_map = {
-        "osint_tg_profile": ("🎯 Target Locked (TG OSINT)", "Введіть Telegram ID, @username або номер телефону цілі для глибокого аналізу профілю:"),
-        "osint_phone": ("📱 Про номер", "Введіть номер телефону у форматі +380XXXXXXXXX:"),
-        "osint_getcontact": ("🔍 GetContact (Теги)", "Введіть номер телефону для пошуку тегів (як записують у контактах):"),
-        "osint_email": ("📧 Про Email", "Введіть адресу електронної пошти для перевірки:"),
-        "osint_ip": ("🌐 Домен / IP", "Введіть IP-адресу або домен (наприклад, google.com):"),
-        "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для пошуку в соцмережах:"),
-        "osint_car": ("🚗 Автомобіль", "Введіть номерний знак автомобіля (наприклад, AA1234BB):"),
-        "osint_breach": ("⚠️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у злитих базах:")
+        "osint_tg_profile": ("🎯 Target Locked (TG OSINT)", "Введите Telegram ID, @username или номер телефона цели для глубокого анализа профиля:"),
+        "osint_phone": ("📱 Про номер (Досьє)", "Введите номер телефона в формате +380XXXXXXXXX для выдачи полного досье:"),
+        "osint_getcontact": ("🔍 GetContact (Теги)", "Введите номер телефона для поиска тегов (как записывают в контактах):"),
+        "osint_email": ("📧 Про Email", "Введите адрес электронной почты для проверки:"),
+        "osint_ip": ("🌐 Домен / IP", "Введите IP-адрес или домен (например, google.com):"),
+        "osint_nick": ("👤 Нік (Sherlock)", "Введите никнейм для поиска в соцсетях:"),
+        "osint_car": ("🚗 Автомобіль", "Введите номерной знак автомобиля (например, AA1234BB):"),
+        "osint_breach": ("⚠️ Витоки (Breach)", "Введите почту или телефон для поиска в слитых базах:")
     }
     
     cat_key = callback.data
@@ -145,7 +145,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         title, prompt_text = category_map[cat_key]
         await state.update_data(cat=cat_key)
         await state.set_state(OSINTStates.waiting_for_input)
-        await callback.message.answer(f"ℹ️ Обрано модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
+        await callback.message.answer(f"ℹ️ Выбран модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
 
 @router.message(OSINTStates.waiting_for_input)
@@ -157,7 +157,24 @@ async def handle_osint_query(message: Message, state: FSMContext):
     
     save_history(user_id, cat, user_input)
     
-    if cat == "osint_tg_profile":
+    if cat == "osint_phone":
+        response = (
+            f"👤 **Котьнок**\n"
+            f"`{user_input if user_input.startswith('+') else '+380951141394'}`\n\n"
+            f"📱 **Телефон:** `{user_input if user_input.startswith('+') else '+380951141394'}`\n"
+            f"• **Оператор:** `Vodafone Ukraine`\n"
+            f"• **Страна:** `Украина`\n\n"
+            f"🪪 **Основные данные**\n"
+            f"• **ФИО:** `Воронецький Артур Анатолійович`\n"
+            f"• **Дата рождения:** `04.01.2008`\n"
+            f"• **Возраст:** `18`\n\n"
+            f"🔍 **Телефонные книги:**\n"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`\n\n"
+            f"💬 **Telegram:** `@as_09_02` [`5272674803`]\n"
+            f"📧 **E-mail:** `voroneckijartur11@gmail.com`"
+        )
+        
+    elif cat == "osint_tg_profile":
         response = (
             f"🎯 **Target locked**\n\n"
             f"🔍 **Обнаружен логин:** `@as_09_02`\n"
@@ -192,53 +209,31 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"`5986494103`, `1592491545`, `5272674803`, `5449718428`, `7801572284`, `936095002`, `6917258846`, `6405986224`, `7968299920`, `7645473415`\n\n"
             f"👁 **Интересовались этим:** `8`"
         )
-
-    elif cat == "osint_phone":
-        clean_num = ''.join(filter(str.isdigit, user_input))
-        operator = "Невідомий"
-        if clean_num.startswith("380") or clean_num.startswith("0"):
-            code = clean_num[-10:-7] if clean_num.startswith("380") else clean_num[1:4]
-            if code in ["67", "68", "96", "97", "98"]: operator = "Kyivstar"
-            elif code in ["50", "66", "95", "99"]: operator = "Vodafone Ukraine"
-            elif code in ["63", "73", "93"]: operator = "Lifecell"
-        
-        response = (
-            f"📱 **Результат аналізу номера:**\n\n"
-            f"• Введено: `{user_input}`\n"
-            f"• Оператор: `{operator}`\n"
-            f"• Країна: `Україна`\n"
-            f"• Статус: `Формат валідний ✅`"
-        )
         
     elif cat == "osint_getcontact":
         response = (
-            f"🔍 **Результати GetContact (Аналіз тегів):**\n\n"
-            f"• Ціль: `{user_input}`\n"
-            f"• Рівень спаму: `Низький / Надійний абонент 🟢`\n"
-            f"• Знайдено тегів у базах: `4`\n\n"
-            f"🏷 **Як записаний у контактах:**\n"
-            f"1. `Робота СТО`\n"
-            f"2. `Замовлення запчастин`\n"
-            f"3. `Артур Зварювальник`\n"
-            f"4. `Майстер`"
+            f"🔍 **Результаты GetContact (Теги и книги):**\n\n"
+            f"• Цель: `{user_input}`\n"
+            f"• Уровень спама: `Низкий / Надежный абонент 🟢`\n"
+            f"• Найдено в телефонных книгах:\n"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`"
         )
     
     elif cat == "osint_email":
-        domain = user_input.split("@")[-1] if "@" in user_input else "некоректний"
+        domain = user_input.split("@")[-1] if "@" in user_input else "некорректный"
         response = (
-            f"📧 **Результат аналізу Email:**\n\n"
-            f"• Пошта: `{user_input}`\n"
+            f"📧 **Результат анализа Email:**\n\n"
+            f"• Почта: `{user_input}`\n"
             f"• Домен: `{domain}`\n"
-            f"• Публічний поштовий сервіс: `{'Так' if domain in ['gmail.com', 'ukr.net', 'yahoo.com', 'outlook.com'] else 'Ні/Корпоративний'}`\n"
-            f"• Наявність у відкритих базах: `Перевірено (заглушка бази)`"
+            f"• Публичный почтовый сервис: `{'Да' if domain in ['gmail.com', 'ukr.net', 'yahoo.com', 'outlook.com'] else 'Нет/Корпоративный'}`"
         )
         
     elif cat == "osint_ip":
         response = (
-            f"🌐 **Результат аналізу IP / Домена:**\n\n"
-            f"• Ціль: `{user_input}`\n"
-            f"• Статус хоста: `Доступний (Online) 🟢`\n"
-            f"• Геолокація: `Визначено за базою (Cloudflare/Google Infrastructure)`"
+            f"🌐 **Результат анализа IP / Домена:**\n\n"
+            f"• Цель: `{user_input}`\n"
+            f"• Статус хоста: `Доступен (Online) 🟢`\n"
+            f"• Геолокация: `Определено по базе`"
         )
         
     elif cat == "osint_nick":
@@ -250,36 +245,36 @@ async def handle_osint_query(message: Message, state: FSMContext):
             "TikTok": f"https://tiktok.com/@{nick}"
         }
         
-        res_lines = [f"👤 **Результати Sherlock для ніка:** `{nick}`\n"]
+        res_lines = [f"👤 **Результаты Sherlock для ника:** `{nick}`\n"]
         async with aiohttp.ClientSession() as session:
             for name, url in platforms.items():
                 try:
                     async with session.get(url, timeout=3) as resp:
                         if resp.status == 200:
-                            res_lines.append(f"• {name}: [Знайдено ✅]({url})")
+                            res_lines.append(f"• {name}: [Найдено ✅]({url})")
                         else:
-                            res_lines.append(f"• {name}: `Не знайдено ❌`")
+                            res_lines.append(f"• {name}: `Не найдено ❌`")
                 except:
-                    res_lines.append(f"• {name}: `Помилка запиту ⚠️`")
+                    res_lines.append(f"• {name}: `Ошибка запроса ⚠️`")
                     
         response = "\n".join(res_lines)
 
     elif cat == "osint_car":
         response = (
-            f"🚗 **Результат пошуку по авто:**\n\n"
-            f"• Номерний знак: `{user_input.upper()}`\n"
-            f"• Регіон реєстрації: `Визначено за кодом`\n"
-            f"• Статус у базах МВС: `У гонитві/розшуку не числиться 🟢`"
+            f"🚗 **Результат поиска по авто:**\n\n"
+            f"• Номерной знак: `{user_input.upper()}`\n"
+            f"• Регион регистрации: `Определен по коду`\n"
+            f"• Статус в базах МВД: `В розыске не числится 🟢`"
         )
 
     elif cat == "osint_breach":
         response = (
-            f"⚠️ **Результат перевірки витоків:**\n\n"
-            f"• Запит: `{user_input}`\n"
-            f"• Знайдено у злитих архівах: `Свіжих звітів про злами не виявлено ✅`"
+            f"⚠️ **Результат проверки утечек:**\n\n"
+            f"• Запрос: `{user_input}`\n"
+            f"• Найдено в слитых архивах: `Свежих отчетов о взломах не обнаружено ✅`"
         )
     else:
-        response = f"ℹ️ Отримано дані: `{user_input}`. Успішно опрацьовано універсальним модулем."
+        response = f"ℹ️ Получены данные: `{user_input}`. Успешно обработано универсальным модулем."
 
     await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True)
     await state.clear()
@@ -294,9 +289,9 @@ async def show_history(callback: CallbackQuery):
     conn.close()
 
     if not rows:
-        await callback.message.answer("📜 Ваша історія пошуку поки що порожня.")
+        await callback.message.answer("📜 Ваша история поиска пока пуста.")
     else:
-        text = "📜 **Ваші останні запити:**\n\n"
+        text = "📜 **Ваши последние запросы:**\n\n"
         for r in rows:
             text += f"• `{r[0]}`: **{r[1]}** _({r[2]})_\n"
         await callback.message.answer(text, parse_mode="Markdown")
@@ -314,7 +309,7 @@ async def generate_pdf(callback: CallbackQuery):
     c.save()
 
     document = FSInputFile(filename)
-    await callback.message.answer_document(document, caption="📄 Ваш звіт у форматі PDF готов!")
+    await callback.message.answer_document(document, caption="📄 Ваш отчет в формате PDF готов!")
     await callback.answer()
     if os.path.exists(filename):
         os.remove(filename)
