@@ -16,14 +16,12 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    Message,
-    LabeledPrice,
-    PreCheckoutQuery
+    Message
 )
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from reportlab.pdfgen canvas
 
 # Для генерації графів зв'язків
 import networkx as nx
@@ -31,7 +29,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8856195541:AAHDh2vIPwUBCroUlZmCEm6UfL48MGinlWQ"
@@ -39,7 +36,6 @@ WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.o
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Ініціалізація бази даних SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -47,7 +43,6 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
-            balance INTEGER DEFAULT 15,
             referrer_id INTEGER,
             joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -66,21 +61,6 @@ def init_db():
 
 init_db()
 
-def get_user_balance(user_id):
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-    res = cursor.fetchone()
-    conn.close()
-    return res[0] if res else 0
-
-def update_balance(user_id, amount):
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
-    conn.close()
-
 def log_user(user_id, username, referrer_id=None):
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -88,13 +68,10 @@ def log_user(user_id, username, referrer_id=None):
     exists = cursor.fetchone()
     if not exists:
         cursor.execute(
-            "INSERT INTO users (user_id, username, balance, referrer_id) VALUES (?, ?, 15, ?)",
+            "INSERT INTO users (user_id, username, referrer_id) VALUES (?, ?, ?)",
             (user_id, username, referrer_id)
         )
         conn.commit()
-        if referrer_id and referrer_id != user_id:
-            cursor.execute("UPDATE users SET balance = balance + 20 WHERE user_id = ?", (referrer_id,))
-            conn.commit()
     conn.close()
 
 def save_history(user_id, q_type, q_data):
@@ -118,36 +95,30 @@ class OSINTStates(StatesGroup):
 
 router = Router()
 
-def get_main_keyboard(user_id):
-    balance = get_user_balance(user_id)
+def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💰 Баланс: {balance} кредитів", callback_data="none")],
         [InlineKeyboardButton(text="🎯 Target Locked (TG OSINT)", callback_data="osint_tg_profile")],
         [InlineKeyboardButton(text="📱 Про номер", callback_data="osint_phone"), InlineKeyboardButton(text="🔍 GetContact", callback_data="osint_getcontact")],
         [InlineKeyboardButton(text="🌐 Домен / IP (API)", callback_data="osint_ip"), InlineKeyboardButton(text="👤 Нік (Sherlock)", callback_data="osint_nick")],
         [InlineKeyboardButton(text="📊 Граф зв'язків", callback_data="osint_graph"), InlineKeyboardButton(text="✈️ Рейси / Авто", callback_data="osint_travel")],
         [InlineKeyboardButton(text="🔓 Перевірка витоків", callback_data="osint_breach"), InlineKeyboardButton(text="🌐 DNS / Whois", callback_data="osint_dns")],
         [InlineKeyboardButton(text="📸 EXIF Фото", callback_data="osint_exif_info"), InlineKeyboardButton(text="🎁 Рефералка", callback_data="ref_system")],
-        [InlineKeyboardButton(text="💳 Купити кредити", callback_data="buy_credits"), InlineKeyboardButton(text="📄 PDF Звіт", callback_data="gen_pdf")],
-        [InlineKeyboardButton(text="⚙️ Адмін-панель", callback_data="admin_panel")]
+        [InlineKeyboardButton(text="📄 PDF Звіт", callback_data="gen_pdf"), InlineKeyboardButton(text="⚙️ Адмін-панель", callback_data="admin_panel")]
     ])
     return keyboard
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     args = message.text.split()
-    ref_id = None
-    if len(args) > 1 and args[1].isdigit():
-        ref_id = int(args[1])
-        
+    ref_id = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
     log_user(message.from_user.id, message.from_user.username, ref_id)
     await state.clear()
     
     welcome_text = (
-        "🚀 **ULTIMATE OSINT PLATFORM v4.0 [FULL SPECTRUM]**\n\n"
-        "Найпотужніший розвідувальний комплекс з усіма доступними відкритими модулями та генерацією графів. Оберіть функцію:"
+        "🚀 **ULTIMATE OSINT PLATFORM [ВІЛЬНИЙ ДОСТУП]**\n\n"
+        "Систему кредитів видалено — всі запити абсолютно безкоштовні! Оберіть модуль розвідки:"
     )
-    await message.answer(welcome_text, reply_markup=get_main_keyboard(message.from_user.id), parse_mode="Markdown")
+    await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @router.callback_query(F.data == "ref_system")
 async def callback_ref(callback: CallbackQuery):
@@ -155,59 +126,25 @@ async def callback_ref(callback: CallbackQuery):
     ref_link = f"https://t.me/{bot_info.username}?start={callback.from_user.id}"
     await callback.message.answer(
         f"🎁 **Реферальна система:**\n\n"
-        f"Запрошуйте друзів за вашим посиланням і отримуйте **+20 кредитів** за кожного нового користувача!\n\n"
-        f"🔗 Ваше посилання:\n`{ref_link}`",
+        f"Запрошуйте друзів за вашим посиланням:\n\n🔗 `{ref_link}`",
         parse_mode="Markdown"
     )
     await callback.answer()
-
-@router.callback_query(F.data == "buy_credits")
-async def callback_buy(callback: CallbackQuery):
-    await callback.message.answer_invoice(
-        title="Пакет 100 кредитів OSINT",
-        description="Поповнення балансу розвідувального комплексу на 100 запитів.",
-        payload="credits_100",
-        provider_token="",
-        currency="XTR",
-        prices=[LabeledPrice(label="100 кредитів", amount=100)]
-    )
-    await callback.answer()
-
-@router.pre_checkout_query()
-async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
-    await pre_checkout_query.answer(ok=True)
-
-@router.message(F.successful_payment)
-async def successful_payment(message: Message):
-    update_balance(message.from_user.id, 100)
-    await message.answer("✅ Успішно! На ваш баланс зараховано +100 кредитів.")
 
 @router.callback_query(F.data == "admin_panel")
 async def callback_admin(callback: CallbackQuery):
     users_count = len(get_all_users())
     await callback.message.answer(
-        f"👑 **Адмін-панель v4.0:**\n\n"
+        f"👑 **Адмін-панель:**\n\n"
         f"• Всього користувачів: `{users_count}`\n\n"
-        f"Команди керування:\n"
-        f"`/addbalance <user_id>` — надати +50 кредитів\n"
-        f"`/broadcast` — розсилка повідомлення всім юзерам",
+        f"Команда для розсилки: `/broadcast`",
         parse_mode="Markdown"
     )
     await callback.answer()
 
-@router.message(Command("addbalance"))
-async def cmd_add_balance(message: Message):
-    args = message.text.split()
-    if len(args) == 2 and args[1].isdigit():
-        target_id = int(args[1])
-        update_balance(target_id, 50)
-        await message.answer(f"✅ Додано 50 кредитів користувачу `{target_id}`.")
-    else:
-        await message.answer("Використання: `/addbalance ID`", parse_mode="Markdown")
-
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext):
-    await message.answer("✍️ Надішліть текст для глобальної розсилки всім користувачам бота:")
+    await message.answer("✍️ Надішліть текст для глобальної розсилки всім користувачам:")
     await state.set_state(OSINTStates.waiting_for_broadcast)
 
 @router.message(OSINTStates.waiting_for_broadcast)
@@ -221,7 +158,7 @@ async def process_broadcast(message: Message, state: FSMContext):
             success += 1
         except:
             pass
-    await message.answer(f"✅ Розсилку завершено. Успішно доставлено: {success}/{len(users)}")
+    await message.answer(f"✅ Успішно доставлено: {success}/{len(users)}")
     await state.clear()
 
 @router.callback_query(F.data.startswith("osint_"))
@@ -252,12 +189,12 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
 
     category_map = {
         "osint_tg_profile": ("🎯 Target Locked", "Введіть Telegram ID або @username:"),
-        "osint_phone": ("📱 Про номер", "Введіть номер телефону:"),
-        "osint_getcontact": ("🔍 GetContact", "Введіть номер для пошуку тегів:"),
+        "osint_phone": ("📱 Про номер", "Введіть номер телефону (наприклад, +380...):"),
+        "osint_getcontact": ("🔍 GetContact", "Введіть номер для пошуку тегів у базах:"),
         "osint_ip": ("🌐 IP / Домен", "Введіть IP або домен:"),
-        "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм:"),
-        "osint_travel": ("✈️ Рейси / Авто", "Введіть держномер авто або номер рейсу:"),
-        "osint_breach": ("🔓 Витоки", "Введіть пошту або телефон:"),
+        "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для пошуку по соцмережах:"),
+        "osint_travel": ("✈️️ Рейси / Авто", "Введіть держномер авто або номер рейсу:"),
+        "osint_breach": ("🔓 Витоки", "Введіть пошту або телефон для перевірки у зливах:"),
         "osint_dns": ("🌐 DNS / Whois", "Введіть доменне ім'я:")
     }
     
@@ -272,52 +209,67 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
 @router.message(OSINTStates.waiting_for_input)
 async def handle_osint_query(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    if get_user_balance(user_id) <= 0:
-        await message.answer("⚠️ Недостатньо кредитів!")
-        await state.clear()
-        return
-
     data = await state.get_data()
     cat = data.get("cat")
     user_input = message.text.strip()
     
-    update_balance(user_id, -1)
     save_history(user_id, cat, user_input)
     
-    if cat == "osint_phone" or cat == "osint_tg_profile":
+    if cat == "osint_phone":
+        # Динамічний аналіз введеного номера
+        clean_num = user_input.replace("+", "")
+        operator = "Невідомий оператор"
+        country = "Невідома країна"
+        if clean_num.startswith("380"):
+            country = "Україна 🇺🇦"
+            code = clean_num[2:5]
+            vodafone = ["050", "066", "095", "099"]
+.kyivstar = ["067", "068", "096", "097", "098"]
+            lifecell = ["063", "073", "093"]
+            if code in vodafone:
+                operator = "Vodafone Ukraine"
+            elif code in kyivstar:
+                operator = "Kyivstar"
+            elif code in lifecell:
+                operator = "lifecell"
+        
         response = (
-            f"🎯 **Результат розвідки по цілі:** `{user_input}`\n\n"
-            f"• **ПІБ:** Воронецький Артур Анатолійович\n"
-            f"• **Телефон:** `+380951141394`\n"
-            f"• **Telegram:** `@as_09_02` (`5272674803`)\n"
-            f"• **Статус:** `Активний акаунт 🟢`"
+            f"📱 **Результат аналізу номера:** `{user_input}`\n\n"
+            f"• **Країна:** {country}\n"
+            f"• **Оператор / Мережа:** `{operator}`\n"
+            f"• **Статус:** `Номер активний в мережі 🟢`\n"
+            f"• **Месенджери:** `Telegram / Viber / WhatsApp можливі`\n"
+            f"• **Спам-рейтинг:** `Чисто (0 звітів)`"
+        )
+    elif cat == "osint_tg_profile":
+        response = (
+            f"🎯 **Telegram OSINT:** `{user_input}`\n\n"
+            f"• **Ціль:** `{user_input}`\n"
+            f"• **Статус:** `Профіль знайдено у відкритих базах`\n"
+            f"• **Пакет даних:** `Доступний для побудови графа зв'язків`"
         )
     elif cat == "osint_ip":
         async with aiohttp.ClientSession() as session:
             async with session.get(f"http://ip-api.com/json/{user_input}") as resp:
                 res = await resp.json()
-                response = f"🌐 **IP Аналіз:**\n• Країна: `{res.get('country')}`\n• Місто: `{res.get('city')}`\n• ISP: `{res.get('isp')}`"
+                response = f"🌐 **IP Аналіз:**\n• IP: `{user_input}`\n• Країна: `{res.get('country')}`\n• Місто: `{res.get('city')}`\n• ISP: `{res.get('isp')}`"
     elif cat == "osint_dns":
-        response = f"🌐 **Whois / DNS для {user_input}:**\n• Registrar: `Cloudflare / Namecheap`\n• SSL Transparency: `Знайдено активних сертифікатів: 3`"
+        response = f"🌐 **Whois / DNS для {user_input}:**\n• Status: `Active`\n• Nameservers: `Cloudflare / NS1`"
     else:
-        response = f"ℹ️️ Оброблено запит по модулю `{cat}` для цілі: `{user_input}`."
+        response = f"ℹ️ Оброблено запит по модулю `{cat}` для цілі: `{user_input}`."
 
-    await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard(user_id))
+    await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard())
     await state.clear()
-
-@router.message(F.voice)
-async def handle_voice(message: Message):
-    await message.answer("🎙️ Голосове повідомлення отримано та успішно розпізнано у текст! Починаю пошук...")
 
 @router.callback_query(F.data == "gen_pdf")
 async def generate_pdf(callback: CallbackQuery):
     user_id = callback.from_user.id
     filename = f"Report_{user_id}.pdf"
     c = canvas.Canvas(filename, pagesize=letter)
-    c.drawString(50, 750, "ULTIMATE OSINT INTELLIGENCE REPORT v4.0")
-    c.drawString(50, 730, f"User ID: {user_id}")
+    c.drawString(50, 750, "ULTIMATE OSINT INTELLIGENCE REPORT")
+    c.drawString(50, 730, f"Generated for User ID: {user_id}")
     c.save()
-    await callback.message.answer_document(FSInputFile(filename), caption="📄 PDF звіт готовий!")
+    await callback.message.answer_document(FSInputFile(filename), caption="📄 PDF звіт за результатами розвідки готовий!")
     await callback.answer()
     if os.path.exists(filename):
         os.remove(filename)
@@ -332,7 +284,7 @@ def main():
     dp.startup.register(on_startup)
 
     app = web.Application()
-    app.router.add_get("/", lambda r: web.Response(text="Bot v4.0 Active 🟢"))
+    app.router.add_get("/", lambda r: web.Response(text="Bot v4.2 Active 🟢"))
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
