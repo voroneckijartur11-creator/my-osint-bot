@@ -11,7 +11,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import random
 import string
-import base64
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -24,11 +23,10 @@ import pypdf
 import cv2
 import numpy as np
 import pytesseract
-import qrcode
 
 # --- НАЛАШТУВАННЯ ТА ВЕБ-СЕРВЕР (HEALTH CHECK) ---
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
-ADMIN_IDS = [571578132]  # Замініть або додайте ваш Telegram ID за потреби
+ADMIN_IDS = [571578132]  # Ваш Telegram ID
 VIRUSTOTAL_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -113,6 +111,7 @@ def get_standard_markup():
 
 # --- ДОДАТКОВІ МОДУЛІ РОЗВІДКИ ---
 def scan_ports(target):
+    import socket
     ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
     open_ports = []
     service_map = {21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 443: "HTTPS", 3306: "MySQL", 3389: "RDP"}
@@ -152,7 +151,7 @@ def check_virustotal_url(target_url):
             time.sleep(1)
             report = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers, timeout=5).json()
             stats = report.get("data", {}).get("attributes", {}).get("stats", {})
-            return f"🛡️ **VirusTotal:** Шкідливих: `{stats.get('malicious', 0)}` | Безпечних: `{stats.get('harmless', 0)}`"
+            return f"🛡️️ **VirusTotal:** Шкідливих: `{stats.get('malicious', 0)}` | Безпечних: `{stats.get('harmless', 0)}`"
     except:
         pass
     return "❌ Помилка VirusTotal."
@@ -167,6 +166,7 @@ def check_security_headers(domain):
         return "❌ Не вдалося перевірити заголовки сайту."
 
 def check_ssl_cert(domain):
+    import socket
     try:
         hostname = domain.replace("https://", "").replace("http://", "").split("/")[0]
         ctx = ssl.create_default_context()
@@ -200,7 +200,7 @@ async def cmd_start(message: Message):
     log_user(message.chat.id)
     text = (
         "🔥 **Ultimate OSINT Bot Max Pro+ (Advanced Edition)**\n\n"
-        "Інтегровано розширений функціонал, кешування та розвідку:\n"
+        "Усі функції розвідки активовано:\n"
         "• 📱 Телефон, 📧 Пошта, витоки, 🌐 Google Dorks\n"
         "• 🏛️ Пошук за ПІБ, 🚗 Авто, 👤 Соцмережі, 🛡️ VirusTotal\n"
         "• ⚙️ Адмін-панель та повна історія запитів (`/myhistory`)"
@@ -299,7 +299,6 @@ async def process_osint(message: Message):
     chat_id = message.chat.id
     data = message.text.strip()
     
-    # Кнопки головного меню
     menu_actions = {
         "⛽ Комісії / Газ мереж": lambda: requests.get("https://mempool.space/api/v1/fees/recommended", timeout=4).json(),
         "🔑 Генератор паролів": lambda: f"🔑 **Пароль:**\n`{''.join(random.choice(string.ascii_letters + string.digits + '!@#$%^&*') for _ in range(16))}`",
@@ -325,7 +324,6 @@ async def process_osint(message: Message):
         await message.answer(f"ℹ️ Введіть дані для категорії: *{data}*.", parse_mode="Markdown")
         return
 
-    # Перевірка кешу для прискорення
     cached_res = get_cache(data)
     if cached_res:
         add_request_stat()
@@ -338,7 +336,6 @@ async def process_osint(message: Message):
     log_user(chat_id)
     await message.chat.do(action="typing")
 
-    # Префіксні команди розвідки
     if data.lower().startswith("port "):
         target = data[5:].strip()
         open_p = scan_ports(target)
@@ -348,7 +345,6 @@ async def process_osint(message: Message):
         await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
 
-    # URL / Сайт
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res_req = requests.get(data, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
@@ -364,7 +360,6 @@ async def process_osint(message: Message):
             await message.answer("❌ Помилка запиту до сайту.")
             return
 
-    # IP адреса
     if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
         try:
             ip_info = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
@@ -376,7 +371,6 @@ async def process_osint(message: Message):
         except:
             pass
 
-    # Телефон
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         try:
             num = phonenumbers.parse(data, "UA")
@@ -388,7 +382,6 @@ async def process_osint(message: Message):
         except:
             pass
 
-    # Email (з симуляцією витоків)
     if "@" in data:
         try:
             ev = validate_email(data, check_deliverability=True)
@@ -401,7 +394,6 @@ async def process_osint(message: Message):
         except:
             pass
 
-    # Нікнейм / Соцмережі / Загальний пошук
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
