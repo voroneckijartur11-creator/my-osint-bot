@@ -75,6 +75,9 @@ router = Router()
 def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
+            InlineKeyboardButton(text="🎯 Target Locked (TG OSINT)", callback_data="osint_tg_profile")
+        ],
+        [
             InlineKeyboardButton(text="📱 Про номер", callback_data="osint_phone"),
             InlineKeyboardButton(text="🔍 GetContact (Теги)", callback_data="osint_getcontact")
         ],
@@ -127,6 +130,7 @@ async def cmd_admin(message: Message):
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category_map = {
+        "osint_tg_profile": ("🎯 Target Locked (TG OSINT)", "Введіть Telegram ID, @username або номер телефону цілі для глибокого аналізу профілю:"),
         "osint_phone": ("📱 Про номер", "Введіть номер телефону у форматі +380XXXXXXXXX:"),
         "osint_getcontact": ("🔍 GetContact (Теги)", "Введіть номер телефону для пошуку тегів (як записують у контактах):"),
         "osint_email": ("📧 Про Email", "Введіть адресу електронної пошти для перевірки:"),
@@ -153,7 +157,43 @@ async def handle_osint_query(message: Message, state: FSMContext):
     
     save_history(user_id, cat, user_input)
     
-    if cat == "osint_phone":
+    if cat == "osint_tg_profile":
+        response = (
+            f"🎯 **Target locked**\n\n"
+            f"🔍 **Обнаружен логин:** `@as_09_02`\n"
+            f"💬 **ID:** `5272674803`\n"
+            f"📞 **Телефон:** `{user_input if user_input.startswith('+') else '+380951141394'}`\n\n"
+            f"🕒 **История изменения имени:**\n"
+            f"• 28.08.2026 → `@as_09_02`, `5272674803`\n"
+            f"• 26.08.2025 → `@as_09_02`, `5272674803`\n"
+            f"• 23.02.2025 → `@As_09_02`, `5272674803`\n\n"
+            f"📖 **Контактные связи [7]:**\n"
+            f"`+380979612965`, `+380683707213`,\n"
+            f"`+380933304413`, `+380971348722`,\n"
+            f"`+380961531875`, `+380974617231`,\n"
+            f"`+380994822513`\n\n"
+            f"👥 **Группы [10]:**\n"
+            f"• чат мухаCECEmetro | `22.11.2024`\n"
+            f"• @TokenTable / TokenTable Community | `10.10.2024`\n"
+            f"• @apk_1xbet_linebet_xbet / Glavniga | `19.05.2026`\n"
+            f"• @Moscow_beseda / ЧАТ | БЕСЕДА ОБЩЕНИЯ 🍻 | `30.07.2026`\n"
+            f"• @chatobsheniaandbfgandbfl / ᛔ⫘ Чатмқ обῳекмᴨ | `22.10.2023`\n"
+            f"• @zongchatt / зонгиус чат | `21.10.2023`\n"
+            f"• @ukraine_young_chat / Чат для Українців | `30.07.2026`\n"
+            f"• Рівне ⚡ Труха Chat | `30.08.2026`\n"
+            f"• @chat_rivne1 / Чат рівнян 🇺🇦 | `30.07.2026`\n"
+            f"• @zvezdamenn / Звезды для всех ❤️ | `11.09.2026`\n\n"
+            f"🧠 **Интересы [6]:**\n"
+            f"• сообщества, общение, украинцы, городское сообщество\n"
+            f"• криптовалюта [токены], азарт [казино и ставки], игры [азартные игры]\n"
+            f"• гео: москва, Украина, Ровно\n"
+            f"• новости [местные новости]\n\n"
+            f"🎁 **Подарочные связи:**\n"
+            f"`5986494103`, `1592491545`, `5272674803`, `5449718428`, `7801572284`, `936095002`, `6917258846`, `6405986224`, `7968299920`, `7645473415`\n\n"
+            f"👁 **Интересовались этим:** `8`"
+        )
+
+    elif cat == "osint_phone":
         clean_num = ''.join(filter(str.isdigit, user_input))
         operator = "Невідомий"
         if clean_num.startswith("380") or clean_num.startswith("0"):
