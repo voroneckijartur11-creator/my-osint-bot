@@ -22,8 +22,8 @@ from reportlab.pdfgen import canvas
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Токен вашого бота (краще брати з оточення, але якщо вписано тут — залишиться так)
-TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_БОТА")
+# Токен вашого бота
+TOKEN = "7544062820:AAHQqf5H73wA3r65hK1m_Nsk_g8_24M9R58"
 
 # Ініціалізація бази даних SQLite
 def init_db():
@@ -135,7 +135,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
     cat_key = callback.data
     if cat_key in category_map:
         title, prompt_text = category_map[cat_key]
-        await state.update_state(cat=cat_key)
+        await state.update_data(cat=cat_key)
         await state.set_state(OSINTStates.waiting_for_input)
         await callback.message.answer(f"ℹ️ Обрано модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
@@ -151,7 +151,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
     save_history(user_id, cat, user_input)
     
     if cat == "osint_phone":
-        # Аналіз номера
         clean_num = ''.join(filter(str.isdigit, user_input))
         operator = "Невідомий"
         if clean_num.startswith("380") or clean_num.startswith("0"):
@@ -187,7 +186,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
         )
         
     elif cat == "osint_nick":
-        # Міні-Sherlock асинхронна перевірка платформ
         nick = user_input
         platforms = {
             "Telegram": f"https://t.me/{nick}",
@@ -267,7 +265,7 @@ async def generate_pdf(callback: CallbackQuery):
     if os.path.exists(filename):
         os.remove(filename)
 
-# HealthCheck сервер для Render (щоб бот не засинав)
+# HealthCheck сервер для Render
 async def handle_health(request):
     return web.Response(text="Bot is running!")
 
@@ -285,7 +283,6 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
 
-    # Запускаємо HealthCheck та Telegram Полінг паралельно
     await web_server()
     logging.info("Super-bot started polling successfully...")
     await dp.start_polling(bot)
