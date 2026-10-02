@@ -14,13 +14,13 @@ from aiogram.types import (
     Message,
 )
 import aiohttp
+from aiohttp import web
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Новий актуальний токен вашого бота
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
 
 # Ініціалізація бази даних SQLite
@@ -62,13 +62,11 @@ def save_history(user_id, q_type, q_data):
     conn.commit()
     conn.close()
 
-# Стани для FSM
 class OSINTStates(StatesGroup):
     waiting_for_input = State()
 
 router = Router()
 
-# Головне меню з кнопками
 def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -259,15 +257,32 @@ async def generate_pdf(callback: CallbackQuery):
     if os.path.exists(filename):
         os.remove(filename)
 
+# Вебсервер для того, щоб Render не перезапускав бот
+async def handle_ping(request):
+    return web.Response(text="Dark Prince Bot is running! 🟢")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Web server started on port {port}")
+
 async def main():
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
 
-    # Примусово скидаємо старі вебхуки та залишки сесій getUpdates
+    # Очищуємо старі завислі з'єднання Telegram
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Super-bot started polling successfully...")
     
+    # Запускаємо локальний вебсервер для Render та опитування бота одночасно
+    await start_web_server()
+    
+    logging.info("Super-bot started polling successfully...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
