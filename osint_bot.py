@@ -150,7 +150,7 @@ def check_password_leak(pwd):
 
 def check_virustotal_url(target_url):
     if not VIRUSTOTAL_API_KEY:
-        return "⚠️️ VirusTotal API ключ не налаштовано."
+        return "⚠️ VirusTotal API ключ не налаштовано."
     try:
         headers = {"x-apikey": VIRUSTOTAL_API_KEY}
         data = {"url": target_url}
@@ -251,7 +251,7 @@ def start_msg(message):
         "• 📱 Телефон, 📧 Пошта, витоки паролів, 🌐 Google Dorks\n"
         "• 🏛️ Пошук за ПІБ (Суди, боржники, реєстри)\n"
         "• 🚗 Перевірка авто за держномером\n"
-        "• 👤 Пошук по соцмережах, Telegram, 🛡️️ VirusTotal, Порти"
+        "• 👤 Пошук по соцмережах, Telegram, 🛡️ VirusTotal, Порти"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -515,7 +515,7 @@ def process_osint(message):
                 found.append(name)
                 markup.add(types.InlineKeyboardButton(f"🔗 {name}", url=url))
         except Exception:
-                        pass
+            pass
 
     markup.add(
         types.InlineKeyboardButton("🌐 Google Dork Пошук", url=f"https://www.google.com/search?q={urllib.parse.quote(data)}")
