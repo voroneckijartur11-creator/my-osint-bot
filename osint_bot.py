@@ -14,7 +14,6 @@ from aiogram.types import (
     Message,
 )
 import aiohttp
-from aiohttp import web
 import qrcode
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -129,7 +128,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         "osint_ip": ("🌐 Домен / IP", "Введіть IP-адресу або домен (наприклад, google.com):"),
         "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для пошуку в соцмережах:"),
         "osint_car": ("🚗 Автомобіль", "Введіть номерний знак автомобіля (наприклад, AA1234BB):"),
-        "osint_breach": ("⚠️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у злитих базах:")
+        "osint_breach": ("⚠️️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у злитих базах:")
     }
     
     cat_key = callback.data
@@ -265,25 +264,11 @@ async def generate_pdf(callback: CallbackQuery):
     if os.path.exists(filename):
         os.remove(filename)
 
-# HealthCheck сервер для Render
-async def handle_health(request):
-    return web.Response(text="Bot is running!")
-
-async def web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
 async def main():
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
 
-    await web_server()
     logging.info("Super-bot started polling successfully...")
     await dp.start_polling(bot)
 
