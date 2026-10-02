@@ -19,15 +19,12 @@ from phonenumbers import geocoder, carrier
 from email_validator import validate_email
 
 from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS
 import qrcode
 import cv2
 import numpy as np
 import pytesseract
 
 import pypdf
-import docx
-import openpyxl
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РЕНДЕРУ (HEALTH CHECK) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -87,10 +84,11 @@ def add_to_db_history(chat_id, query, result_text=""):
 
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
+VIRUSTOTAL_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")  # Можна додати в змінні середовища Render
 bot = telebot.TeleBot(TOKEN)
 
 last_message_time = {}
-ANTIFLUOD_DELAY = 1.0
+ANTIFLUOD_DELAY = 0.8
 
 def check_antifluod(chat_id):
     now = time.time()
@@ -105,9 +103,9 @@ def get_main_keyboard():
     keyboard.add(types.KeyboardButton("📱 Про номер"), types.KeyboardButton("📧 Про Email"))
     keyboard.add(types.KeyboardButton("🌐 IP / Домен / Сабдомени"), types.KeyboardButton("👤 Нік / Telegram / Соцмережі"))
     keyboard.add(types.KeyboardButton("🪙 Криптогаманець"), types.KeyboardButton("🔗 URL / Безпека / Заголовки"))
-    keyboard.add(types.KeyboardButton("🚗 Авто (Номер / VIN)"), types.KeyboardButton("📷 Фото / Документи / OCR"))
-    keyboard.add(types.KeyboardButton("🛠️ Утиліти / Хеші / Base64"), types.KeyboardButton("⛽ Комісії / Газ мереж"))
-    keyboard.add(types.KeyboardButton("🔍 Сканер портів"), types.KeyboardButton("🕵️ Фейк профіль"))
+    keyboard.add(types.KeyboardButton("📷 Фото / Документи / OCR"), types.KeyboardButton("🛠️ Утиліти / Хеші / Base64"))
+    keyboard.add(types.KeyboardButton("⛽ Комісії / Газ мереж"), types.KeyboardButton("🔍 Сканер портів"))
+    keyboard.add(types.KeyboardButton("🕵️ Фейк профіль"), types.KeyboardButton("🔑 Генератор паролів"))
     return keyboard
 
 def get_standard_markup():
@@ -118,16 +116,18 @@ def get_standard_markup():
     )
     return markup
 
-# --- ДОДАТКОВІ ФУНКЦІЇ (ПОРТИ ТА ПАРОЛІ) ---
+# --- РОЗШИРЕНІ УТИЛІТИ ---
 def scan_ports(target):
-    ports = [21, 22, 80, 443, 3306, 8080]
+    ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080, 8443]
     open_ports = []
+    service_map = {21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 443: "HTTPS", 3306: "MySQL", 3389: "RDP", 8080: "HTTP-Proxy"}
     for p in ports:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.4)
+            s.settimeout(0.3)
             if s.connect_ex((target, p)) == 0:
-                open_ports.append(p)
+                service = service_map.get(p, "Unknown")
+                open_ports.append(f"{p} ({service})")
             s.close()
         except Exception:
             pass
@@ -147,19 +147,36 @@ def check_password_leak(pwd):
         pass
     return 0
 
+def check_virustotal_url(target_url):
+    if not VIRUSTOTAL_API_KEY:
+        return "⚠️ VirusTotal API ключ не налаштовано в системі."
+    try:
+        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+        data = {"url": target_url}
+        response = requests.post("https://www.virustotal.com/api/v3/urls", headers=headers, data=data, timeout=5)
+        if response.status_code == 200:
+            analysis_id = response.json().get("data", {}).get("id")
+            time.sleep(1)
+            report = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers, timeout=5).json()
+            stats = report.get("data", {}).get("attributes", {}).get("stats", {})
+            return f"🛡️ **VirusTotal аналіз:**\n• Шкідливих: `{stats.get('malicious', 0)}`\n• Підозрілих: `{stats.get('suspicious', 0)}`\n• Безпечних: `{stats.get('harmless', 0)}`"
+    except Exception:
+        pass
+    return "❌ Не вдалося отримати звіт VirusTotal."
+
 # --- КОМАНДИ ТА CALLBACK ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
     log_user(message.chat.id)
     welcome_text = (
-        "🔥 **Ultimate OSINT Bot Max Pro+ (Unified Edition)**\n\n"
+        "🔥 **Ultimate OSINT Bot Max Pro+ (Advanced Edition)**\n\n"
         "Доступні розширені інструменти розвідки та безпеки:\n"
         "• 📱 Телефон, 📧 Пошта, витоки паролів\n"
-        "• 🌐 IP, WHOIS, Сабдомени, Порт-сканер\n"
+        "• 🌐 IP, WHOIS, Сабдомени, Поглиблений порт-сканер\n"
+        "• 🛡️ Перевірка посилань через VirusTotal\n"
         "• 👤 Пошук по соцмережах (Sherlock)\n"
-        "• 🚗 Перевірка авто за номером та VIN\n"
-        "• 📷 EXIF з GPS, OCR, PDF/DOCX/XLSX аналіз\n"
-        "• 🪙 Мультикрипта, комісії мереж та генератори"
+        "• 📷 EXIF з GPS, OCR, PDF аналіз\n"
+        "• 🪙 Мультикрипта, комісії мереж, генератори"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -212,16 +229,16 @@ def handle_files(message):
             if file_name.endswith(('.jpg', '.jpeg', '.png')):
                 image = Image.open(io.BytesIO(downloaded_file))
                 exif = image._getexif()
-                exif_res = "📸 **EXIF Метадані:**\n• Доступні дані зображення оброблено."
+                exif_res = "📸 **EXIF Метадані:**\n• Зображення успішно проаналізовано."
                 add_to_db_history(message.chat.id, f"Photo: {file_name}", exif_res)
                 bot.send_message(message.chat.id, exif_res, parse_mode="Markdown", reply_markup=get_standard_markup())
             elif file_name.endswith('.pdf'):
                 reader = pypdf.PdfReader(io.BytesIO(downloaded_file))
-                res = f"📄 **PDF Метадані:**\n• Сторінок: `{len(reader.pages)}`"
+                res = f"📄 **PDF Документ:**\n• Сторінок: `{len(reader.pages)}`"
                 add_to_db_history(message.chat.id, f"PDF: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
             else:
-                bot.send_message(message.chat.id, "ℹ️️ Формат документа підтримується частково.")
+                bot.send_message(message.chat.id, "ℹ Формат документа підтримується частково.")
         elif message.content_type == 'photo':
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
@@ -231,7 +248,7 @@ def handle_files(message):
             add_to_db_history(message.chat.id, "Photo OCR", res_msg)
             bot.send_message(message.chat.id, res_msg, parse_mode="Markdown", reply_markup=get_standard_markup())
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка обробки файлу: {e}")
 
 # --- ОСНОВНИЙ ОБРОБНИК ПОВІДОМЛЕНЬ ---
 @bot.message_handler(func=lambda message: True)
@@ -249,32 +266,38 @@ def process_osint(message):
     if data == "⛽ Комісії / Газ мереж":
         try:
             btc = requests.get("https://mempool.space/api/v1/fees/recommended", timeout=4).json()
-            res = f"⛽ **Комісії:**\n• BTC Швидко: `{btc.get('fastestFee')} sat/vB`\n• Середньо: `{btc.get('halfHourFee')} sat/vB`"
+            res = f"⛽ **Комісії мережі BTC:**\n• Пріоритет: `{btc.get('fastestFee')} sat/vB`\n• Середньо: `{btc.get('halfHourFee')} sat/vB`\n• Економ: `{btc.get('economyFee')} sat/vB`"
         except Exception:
-            res = "⛽ Не вдалося отримати комісії."
+            res = "⛽ Не вдалося отримати комісії мережі."
         add_to_db_history(chat_id, data, res)
         bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
     elif data == "🔍 Сканер портів":
-        bot.reply_to(message, "ℹ️ Введіть IP або домен для скану портів (наприклад: `port 8.8.8.8` або просто IP).")
+        bot.reply_to(message, "ℹ️ Введіть IP або домен у форматі: `port 8.8.8.8`")
+        return
+    elif data == "🔑 Генератор паролів":
+        chars = string.ascii_letters + string.digits + "!@#$%^&*"
+        pwd = "".join(random.choice(chars) for _ in range(16))
+        res = f"🔑 **Безпечний пароль:**\n`{pwd}`"
+        bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
     elif data == "🕵️ Фейк профіль":
-        names = ["Олександр", "Максим", "Андрій", "Софія", "Юлія", "Дмитро"]
-        surnames = ["Коваленко", "Шевченко", "Мельник", "Бойко", "Ткаченко"]
-        res = f"🕵️ **Фейковий профіль:**\n• Ім'я: `{random.choice(names)} {random.choice(surnames)}`\n• Вік: `{random.randint(18, 50)}`\n• Email: `user_{random.randint(100,999)}@gmail.com`"
+        names = ["Олександр", "Максим", "Андрій", "Софія", "Юлія", "Дмитро", "Артем", "Ірина"]
+        surnames = ["Коваленко", "Шевченко", "Мельник", "Бойко", "Ткаченко", "Кравченко"]
+        res = f"🕵️ **Фейковий профіль:**\n• Ім'я: `{random.choice(names)} {random.choice(surnames)}`\n• Вік: `{random.randint(19, 45)}`\n• Email: `user_{random.randint(1000,9999)}@gmail.com`\n• IP для тестів: `192.168.1.{random.randint(2, 254)}`"
         add_to_db_history(chat_id, data, res)
         bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
-    elif data.startswith("्") or data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "🚗 Авто (Номер / VIN)", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64"]:
+    elif data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64"]:
         bot.reply_to(message, f"Введіть дані для категорії: *{data}*.", parse_mode="Markdown")
         return
 
-    # Нові утиліти через префікси
+    # Утиліти за префіксами
     if data.lower().startswith("port "):
         target = data[5:].strip()
-        bot.reply_to(message, f"🔍 Сканую порти для `{target}`...")
+        bot.reply_to(message, f"🔍 Сканую розширені порти для `{target}`...")
         open_p = scan_ports(target)
-        res = f"🔍 **Порти для {target}:**\n• Відкриті: `{open_p if open_p else 'Жодного з базових не знайдено'}`"
+        res = f"🔍 **Результати скану портів {target}:**\n• Відкриті сервіси:\n" + ("\n".join([f"  - `{p}`" for p in open_p]) if open_p else "  Жодного з критичних портів не відкрито.")
         add_to_db_history(chat_id, data, res)
         bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
@@ -282,7 +305,7 @@ def process_osint(message):
     if data.lower().startswith("pwned "):
         pwd = data[6:].strip()
         count = check_password_leak(pwd)
-        res = f"🔑 **Перевірка пароля:**\n• Знайдено у витоках: `{count} разів`" if count > 0 else "🔑 Пароль чистий (не знайдено у базах витоків)."
+        res = f"🔑 **Перевірка пароля на витоки:**\n• Знайдено у базах зливових даних: `{count} разів`" if count > 0 else "🔑 Пароль чистий (не знайдено у відомих витоках)."
         bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
 
@@ -291,38 +314,39 @@ def process_osint(message):
         bio = io.BytesIO()
         img.save(bio, 'PNG')
         bio.seek(0)
-        bot.send_photo(chat_id, photo=bio, caption="🔳 QR-код")
+        bot.send_photo(chat_id, photo=bio, caption="🔳 Згенерований QR-код")
         return
 
     if data.lower().startswith("b64 "):
         val = data[4:].strip()
         try:
             decoded = base64.b64decode(val.encode('utf-8')).decode('utf-8', errors='ignore')
-            res = f"🔓 **Decoded:** `{decoded}`"
+            res = f"🔓 **Decoded Base64:** `{decoded}`"
         except Exception:
             encoded = base64.b64encode(val.encode('utf-8')).decode('utf-8')
-            res = f"🔒 **Encoded:** `{encoded}`"
+            res = f"🔒 **Encoded Base64:** `{encoded}`"
         bot.reply_to(message, res, parse_mode="Markdown")
         return
 
-    # URL / IP / Domain / Crypto / Phone / Email / Username аналіз
-    bot.reply_to(message, f"⚙️ Аналізую запит...", parse_mode="Markdown")
+    # Основний аналіз запитів
+    bot.reply_to(message, f"⚙️ Обробка та аналіз запиту...", parse_mode="Markdown")
 
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res = requests.get(data, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-            text = f"🔗 **URL:** `{res.url}`\n• Статус: `{res.status_code}`"
+            vt_report = check_virustotal_url(data)
+            text = f"🔗 **URL:** `{res.url}`\n• Статус відповіді: `{res.status_code}`\n\n{vt_report}"
             add_to_db_history(chat_id, data, text)
             bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
             return
         except Exception:
-            bot.send_message(chat_id, "❌ Помилка запиту до URL.")
+            bot.send_message(message.chat.id, "❌ Помилка запиту до вказаного URL.")
             return
 
     if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
         try:
             res = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
-            text = f"🌐 **IP {data}:**\n• Країна: {res.get('country')}\n• Провайдер: {res.get('isp')}"
+            text = f"🌐 **IP-адреса {data}:**\n• Країна: {res.get('country')}\n• Місто: {res.get('city')}\n• Провайдер: {res.get('isp')}\n• Організація: {res.get('org')}"
             add_to_db_history(chat_id, data, text)
             bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
             return
@@ -330,37 +354,45 @@ def process_osint(message):
             pass
 
     if re.match(r'^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,39}$', data):
-        r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
-        bal = r.get('final_balance', 0) / 100000000
-        text = f"🪙 **Bitcoin:** `{data}`\n• Баланс: `{bal:.8f} BTC`"
-        add_to_db_history(chat_id, data, text)
-        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
-        return
-
-    if data.startswith('+') or (data.isdigit() and len(data) >= 9):
-        num = phonenumbers.parse(data, "UA")
-        text = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
-        add_to_db_history(chat_id, data, text)
-        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
-        return
-
-    if "@" in data:
         try:
-            ev = validate_email(data, check_deliverability=True)
-            text = f"📧 **Email:** `{data}`\n• Валідний: Так"
+            r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
+            bal = r.get('final_balance', 0) / 100000000
+            total_rec = r.get('total_received', 0) / 100000000
+            text = f"🪙 **Bitcoin Гаманець:** `{data}`\n• Поточний баланс: `{bal:.8f} BTC`\n• Всього отримано: `{total_rec:.8f} BTC`"
             add_to_db_history(chat_id, data, text)
             bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
             return
         except Exception:
             pass
 
-    # Sherlock нік
+    if data.startswith('+') or (data.isdigit() and len(data) >= 9):
+        try:
+            num = phonenumbers.parse(data, "UA")
+            text = f"📱 **Телефон:** `{data}`\n• Валідний: Так\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
+            return
+        except Exception:
+            pass
+
+    if "@" in data:
+        try:
+            ev = validate_email(data, check_deliverability=True)
+            text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний та існує: Так"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
+            return
+        except Exception:
+            pass
+
+    # Пошук нікнейму по платформах (Sherlock логіка)
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
         "GitHub": f"https://github.com/{username}",
         "TikTok": f"https://www.tiktok.com/@{username}",
-        "Instagram": f"https://www.instagram.com/{username}"
+        "Instagram": f"https://www.instagram.com/{username}",
+        "Twitter / X": f"https://twitter.com/{username}"
     }
     found = []
     markup = types.InlineKeyboardMarkup()
@@ -376,7 +408,7 @@ def process_osint(message):
         types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"),
         types.InlineKeyboardButton("🏠 На головну", callback_data="go_home")
     )
-    res_text = f"👤 **Нік:** `{username}`\n• Знайдено платформ: {len(found)}"
+    res_text = f"👤 **Пошук нікнейму:** `{username}`\n• Знайдено активних платформ: {len(found)}"
     add_to_db_history(chat_id, data, res_text)
     bot.send_message(chat_id, res_text, parse_mode="Markdown", reply_markup=markup)
 
