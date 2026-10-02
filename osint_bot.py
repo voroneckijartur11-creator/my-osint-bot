@@ -3,15 +3,13 @@ import re
 import io
 import time
 import asyncio
-import hashlib
 import sqlite3
-import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 import requests
 import phonenumbers
 from phonenumbers import geocoder, carrier
@@ -74,7 +72,7 @@ dp.include_router(router)
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     log_user(message.chat.id)
-    await message.answer("🔥 **Бот оновлено! Жодних підписок, повна свобода.** Виберіть функцію:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
+    await message.answer("🔥 **Бот повністю оновлено! Жодних підписок, повна свобода.** Виберіть функцію:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
 
 @router.message(Command("myhistory") | (F.text == "📜 Моя історія"))
 async def cmd_history(message: Message):
@@ -109,7 +107,6 @@ async def process_osint(message: Message):
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(chat_id))
 
 async def main():
-    # Повністю очищає вебхуки та активні сесії перед запуском, що вбиває конфлікти
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
