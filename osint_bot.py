@@ -21,8 +21,8 @@ from reportlab.pdfgen import canvas
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Токен вашого бота
-TOKEN = "7544062820:AAHQqf5H73wA3r65hK1m_Nsk_g8_24M9R58"
+# Новий токен вашого бота
+TOKEN = "8856195541:AAGJk5JZ2Cn0IAvw-uN8TQhdkh7PZuORlcA"
 
 # Ініціалізація бази даних SQLite
 def init_db():
@@ -128,7 +128,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         "osint_ip": ("🌐 Домен / IP", "Введіть IP-адресу або домен (наприклад, google.com):"),
         "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для пошуку в соцмережах:"),
         "osint_car": ("🚗 Автомобіль", "Введіть номерний знак автомобіля (наприклад, AA1234BB):"),
-        "osint_breach": ("⚠️️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у злитих базах:")
+        "osint_breach": ("⚠️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у злитих базах:")
     }
     
     cat_key = callback.data
