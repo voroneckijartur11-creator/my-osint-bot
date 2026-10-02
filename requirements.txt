@@ -4,3 +4,4 @@ Pillow
 reportlab
 qrcode
 networkx
+matplotlib
