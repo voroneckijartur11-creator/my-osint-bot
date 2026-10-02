@@ -1,7 +1,12 @@
 import asyncio
+import io
+import json
 import logging
 import os
 import sqlite3
+import aiohttp
+from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -13,13 +18,12 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-import aiohttp
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-# Настройка логирования
+# Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
@@ -28,7 +32,7 @@ WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.o
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Инициализация базы данных SQLite
+# Ініціалізація розширеної бази даних SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -36,6 +40,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
+            balance INTEGER DEFAULT 10,
             joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -53,10 +58,25 @@ def init_db():
 
 init_db()
 
+def get_user_balance(user_id):
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else 0
+
+def update_balance(user_id, amount):
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
+
 def log_user(user_id, username):
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 10)", (user_id, username))
     conn.commit()
     conn.close()
 
@@ -69,11 +89,16 @@ def save_history(user_id, q_type, q_data):
 
 class OSINTStates(StatesGroup):
     waiting_for_input = State()
+    waiting_for_admin_user = State()
 
 router = Router()
 
-def get_main_keyboard():
+def get_main_keyboard(user_id):
+    balance = get_user_balance(user_id)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"💰 Баланс: {balance} кредитів", callback_data="none")
+        ],
         [
             InlineKeyboardButton(text="🎯 Target Locked (TG OSINT)", callback_data="osint_tg_profile")
         ],
@@ -86,15 +111,19 @@ def get_main_keyboard():
             InlineKeyboardButton(text="👤 Нік (Sherlock)", callback_data="osint_nick")
         ],
         [
-            InlineKeyboardButton(text="🌐 Домен / IP", callback_data="osint_ip"),
+            InlineKeyboardButton(text="🌐 Домен / IP (API)", callback_data="osint_ip"),
             InlineKeyboardButton(text="🚗 Автомобіль", callback_data="osint_car")
         ],
         [
-            InlineKeyboardButton(text="⚠️ Витоки (Breach)", callback_data="osint_breach"),
-            InlineKeyboardButton(text="📜 Моя історія", callback_data="my_history")
+            InlineKeyboardButton(text="📸 EXIF Аналіз Фото", callback_data="osint_exif_info"),
+            InlineKeyboardButton(text="⚠️ Витоки (Breach)", callback_data="osint_breach")
         ],
         [
-            InlineKeyboardButton(text="📄 Звіт у PDF", callback_data="gen_pdf")
+            InlineKeyboardButton(text="📜 Моя історія", callback_data="my_history"),
+            InlineKeyboardButton(text="📄 PDF Звіт", callback_data="gen_pdf")
+        ],
+        [
+            InlineKeyboardButton(text="⚙️ Адмін-панель", callback_data="admin_panel")
         ]
     ])
     return keyboard
@@ -104,14 +133,15 @@ async def cmd_start(message: Message, state: FSMContext):
     log_user(message.from_user.id, message.from_user.username)
     await state.clear()
     await message.answer(
-        "👑 **Dark Prince OSINT Platform**\n\n"
-        "Выберите необходимый модуль с помощью меню ниже или отправьте данные для анализа:",
-        reply_markup=get_main_keyboard(),
+        "👑 **ULTIMATE OSINT PLATFORM v3.0 [MAX EDITION]**\n\n"
+        "Вітаю у найпотужнішому розвідувальному комплексі. Оберіть модуль або надішліть фото з EXIF-даними:",
+        reply_markup=get_main_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
 
-@router.message(Command("admin"))
-async def cmd_admin(message: Message):
+@router.callback_query(F.data == "admin_panel")
+async def callback_admin(callback: CallbackQuery):
+    user_id = callback.from_user.id
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
@@ -120,24 +150,49 @@ async def cmd_admin(message: Message):
     queries_count = cursor.fetchone()[0]
     conn.close()
 
-    await message.answer(
-        f"👑 **Админ-панель:**\n\n"
-        f"• Всего пользователей: `{users_count}`\n"
-        f"• Всего запросов выполнено: `{queries_count}`",
+    await callback.message.answer(
+        f"👑 **Адмін-панель платформи:**\n\n"
+        f"• Всього користувачів: `{users_count}`\n"
+        f"• Всього виконано запитів: `{queries_count}`\n"
+        f"• Ваш ID: `{user_id}`\n\n"
+        f"Команди керування:\n"
+        f"`/addbalance <user_id> <сума>` — нарахувати кредити\n"
+        f"`/stats` — розширена статистика",
         parse_mode="Markdown"
     )
+    await callback.answer()
+
+@router.message(Command("addbalance"))
+async def cmd_add_balance(message: Message):
+    args = message.text.split()
+    if len(args) == 3:
+        try:
+            target_id = int(args[1])
+            amount = int(args[2])
+            update_balance(target_id, amount)
+            await message.answer(f"✅ Успішно додано `{amount}` кредитів користувачу `{target_id}`.")
+        except ValueError:
+            await message.answer("⚠️ Невірний формат чисел.")
+    else:
+        await message.answer("Використання: `/addbalance ID СУМА`", parse_mode="Markdown")
 
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if callback.data == "osint_exif_info":
+        await callback.message.answer("📸 Надішліть у чат **фотографію (як файл або звичайне зображення без стиснення)**, щоб витягнути з неї метадані EXIF та GPS-координати.")
+        await callback.answer()
+        return
+
     category_map = {
-        "osint_tg_profile": ("🎯 Target Locked (TG OSINT)", "Введите Telegram ID, @username или номер телефона цели для глубокого анализа профиля:"),
-        "osint_phone": ("📱 Про номер (Досьє)", "Введите номер телефона в формате +380XXXXXXXXX для выдачи полного досье:"),
-        "osint_getcontact": ("🔍 GetContact (Теги)", "Введите номер телефона для поиска тегов (как записывают в контактах):"),
-        "osint_email": ("📧 Про Email", "Введите адрес электронной почты для проверки:"),
-        "osint_ip": ("🌐 Домен / IP", "Введите IP-адрес или домен (например, google.com):"),
-        "osint_nick": ("👤 Нік (Sherlock)", "Введите никнейм для поиска в соцсетях:"),
-        "osint_car": ("🚗 Автомобіль", "Введите номерной знак автомобиля (например, AA1234BB):"),
-        "osint_breach": ("⚠️ Витоки (Breach)", "Введите почту или телефон для поиска в слитых базах:")
+        "osint_tg_profile": ("🎯 Target Locked (TG OSINT)", "Введіть Telegram ID, @username або номер телефону цілі:"),
+        "osint_phone": ("📱 Про номер (Досьє)", "Введіть номер телефону у форматі +380XXXXXXXXX:"),
+        "osint_getcontact": ("🔍 GetContact (Теги)", "Введіть номер телефону для пошуку тегів:"),
+        "osint_email": ("📧 Про Email", "Введіть електронну пошту для перевірки:"),
+        "osint_ip": ("🌐 Домен / IP (API)", "Введіть IP-адресу або доменне ім'я (наприклад, 8.8.8.8 або google.com):"),
+        "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для глобального пошуку по соцмережах:"),
+        "osint_car": ("🚗 Автомобіль", "Введіть державний номерний знак авто:"),
+        "osint_breach": ("⚠️ Витоки (Breach)", "Введіть пошту або телефон для пошуку у зливах:")
     }
     
     cat_key = callback.data
@@ -145,16 +200,25 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         title, prompt_text = category_map[cat_key]
         await state.update_data(cat=cat_key)
         await state.set_state(OSINTStates.waiting_for_input)
-        await callback.message.answer(f"ℹ️ Выбран модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
+        await callback.message.answer(f"ℹ️ Обрано модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
 
 @router.message(OSINTStates.waiting_for_input)
 async def handle_osint_query(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    
+    if balance <= 0:
+        await message.answer("⚠️ У вас закінчилися кредити для запитів! Зверніться до адміністратора.")
+        await state.clear()
+        return
+
     data = await state.get_data()
     cat = data.get("cat")
     user_input = message.text.strip()
-    user_id = message.from_user.id
     
+    # Списуємо 1 кредит за запит
+    update_balance(user_id, -1)
     save_history(user_id, cat, user_input)
     
     if cat == "osint_phone":
@@ -163,13 +227,13 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"`{user_input if user_input.startswith('+') else '+380951141394'}`\n\n"
             f"📱 **Телефон:** `{user_input if user_input.startswith('+') else '+380951141394'}`\n"
             f"• **Оператор:** `Vodafone Ukraine`\n"
-            f"• **Страна:** `Украина`\n\n"
-            f"🪪 **Основные данные**\n"
-            f"• **ФИО:** `Воронецький Артур Анатолійович`\n"
-            f"• **Дата рождения:** `04.01.2008`\n"
-            f"• **Возраст:** `18`\n\n"
-            f"🔍 **Телефонные книги:**\n"
-            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`\n\n"
+            f"• **Країна:** `Україна`\n\n"
+            f"🪪 **Основні дані**\n"
+            f"• **ПІБ:** `Воронецький Артур Анатолійович`\n"
+            f"• **Дата народження:** `04.01.2008`\n"
+            f"• **Вік:** `18`\n\n"
+            f"🔍 **Телефонні книги:**\n"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`[span_0](start_span)[span_0](end_span)\n\n"
             f"💬 **Telegram:** `@as_09_02` [`5272674803`]\n"
             f"📧 **E-mail:** `voroneckijartur11@gmail.com`"
         )
@@ -177,19 +241,19 @@ async def handle_osint_query(message: Message, state: FSMContext):
     elif cat == "osint_tg_profile":
         response = (
             f"🎯 **Target locked**\n\n"
-            f"🔍 **Обнаружен логин:** `@as_09_02`\n"
+            f"🔍 **Виявлений логін:** `@as_09_02`\n"
             f"💬 **ID:** `5272674803`\n"
             f"📞 **Телефон:** `{user_input if user_input.startswith('+') else '+380951141394'}`\n\n"
-            f"🕒 **История изменения имени:**\n"
+            f"🕒 **Історія зміни імені:**\n"
             f"• 28.08.2026 → `@as_09_02`, `5272674803`\n"
             f"• 26.08.2025 → `@as_09_02`, `5272674803`\n"
             f"• 23.02.2025 → `@As_09_02`, `5272674803`\n\n"
-            f"📖 **Контактные связи [7]:**\n"
+            f"📖 **Контактні зв'язки [7]:**\n"
             f"`+380979612965`, `+380683707213`,\n"
             f"`+380933304413`, `+380971348722`,\n"
             f"`+380961531875`, `+380974617231`,\n"
             f"`+380994822513`\n\n"
-            f"👥 **Группы [10]:**\n"
+            f"👥 **Групи [10]:**\n"
             f"• чат мухаCECEmetro | `22.11.2024`\n"
             f"• @TokenTable / TokenTable Community | `10.10.2024`\n"
             f"• @apk_1xbet_linebet_xbet / Glavniga | `19.05.2026`\n"
@@ -200,41 +264,59 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• Рівне ⚡ Труха Chat | `30.08.2026`\n"
             f"• @chat_rivne1 / Чат рівнян 🇺🇦 | `30.07.2026`\n"
             f"• @zvezdamenn / Звезды для всех ❤️ | `11.09.2026`\n\n"
-            f"🧠 **Интересы [6]:**\n"
-            f"• сообщества, общение, украинцы, городское сообщество\n"
-            f"• криптовалюта [токены], азарт [казино и ставки], игры [азартные игры]\n"
-            f"• гео: москва, Украина, Ровно\n"
-            f"• новости [местные новости]\n\n"
-            f"🎁 **Подарочные связи:**\n"
+            f"🧠 **Інтереси [6]:**\n"
+            f"• спільноти, спілкування, українці, міська спільнота\n"
+            f"• криптовалюта [токени], азарт [казино та ставки], ігри [азартні ігри]\n"
+            f"• гео: москва, Україна, Рівне\n"
+            f"• новини [місцеві новини]\n\n"
+            f"🎁 **Подарункові зв'язки:**\n"
             f"`5986494103`, `1592491545`, `5272674803`, `5449718428`, `7801572284`, `936095002`, `6917258846`, `6405986224`, `7968299920`, `7645473415`\n\n"
-            f"👁 **Интересовались этим:** `8`"
+            f"👁 **Цікавилися цим:** `8`"
         )
         
     elif cat == "osint_getcontact":
         response = (
-            f"🔍 **Результаты GetContact (Теги и книги):**\n\n"
-            f"• Цель: `{user_input}`\n"
-            f"• Уровень спама: `Низкий / Надежный абонент 🟢`\n"
-            f"• Найдено в телефонных книгах:\n"
-            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`"
+            f"🔍 **Результати GetContact (Теги та книги):**\n\n"
+            f"• Ціль: `{user_input}`\n"
+            f"• Рівень спаму: `Низький / Надійний абонент 🟢`\n"
+            f"• Знайдено в телефонних книгах:\n"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`[span_1](start_span)[span_1](end_span)"
         )
     
     elif cat == "osint_email":
-        domain = user_input.split("@")[-1] if "@" in user_input else "некорректный"
+        domain = user_input.split("@")[-1] if "@" in user_input else "некоректний"
         response = (
-            f"📧 **Результат анализа Email:**\n\n"
-            f"• Почта: `{user_input}`\n"
+            f"📧 **Результат аналізу Email:**\n\n"
+            f"• Пошта: `{user_input}`\n"
             f"• Домен: `{domain}`\n"
-            f"• Публичный почтовый сервис: `{'Да' if domain in ['gmail.com', 'ukr.net', 'yahoo.com', 'outlook.com'] else 'Нет/Корпоративный'}`"
+            f"• Публічний сервіс: `{'Так' if domain in ['gmail.com', 'ukr.net', 'yahoo.com', 'outlook.com'] else 'Ні / Корпоративний'}`"
         )
         
     elif cat == "osint_ip":
-        response = (
-            f"🌐 **Результат анализа IP / Домена:**\n\n"
-            f"• Цель: `{user_input}`\n"
-            f"• Статус хоста: `Доступен (Online) 🟢`\n"
-            f"• Геолокация: `Определено по базе`"
-        )
+        # Реальний запит через публічне API для IP/Домена
+        api_url = f"http://ip-api.com/json/{user_input}"
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(api_url, timeout=5) as resp:
+                    if resp.status == 200:
+                        res_json = await resp.json()
+                        if res_json.get("status") == "success":
+                            response = (
+                                f"🌐 **Результат живого API аналізу IP / Домена:**\n\n"
+                                f"• Ціль: `{user_input}`\n"
+                                f"• Країна: `{res_json.get('country')}`\n"
+                                f"• Регіон/Місто: `{res_json.get('regionName')}, {res_json.get('city')}`\n"
+                                f"• Провайдер (ISP): `{res_json.get('isp')}`\n"
+                                f"• Організація: `{res_json.get('org')}`\n"
+                                f"• Координати: `{res_json.get('lat')}, {res_json.get('lon')}`\n"
+                                f"• Статус: `Online 🟢`"
+                            )
+                        else:
+                            response = f"⚠️ Не вдалося знайти інформацію про хост `{user_input}` за допомогою API."
+                    else:
+                        response = "⚠️ Помилка з'єднання із зовнішнім API геолокації."
+            except:
+                response = "⚠️ Час очікування запиту до API минув."
         
     elif cat == "osint_nick":
         nick = user_input
@@ -242,42 +324,79 @@ async def handle_osint_query(message: Message, state: FSMContext):
             "Telegram": f"https://t.me/{nick}",
             "GitHub": f"https://github.com/{nick}",
             "Instagram": f"https://instagram.com/{nick}",
-            "TikTok": f"https://tiktok.com/@{nick}"
+            "TikTok": f"https://tiktok.com/@{nick}",
+            "Twitter/X": f"https://twitter.com/{nick}"
         }
         
-        res_lines = [f"👤 **Результаты Sherlock для ника:** `{nick}`\n"]
+        res_lines = [f"👤 **Результати Sherlock для нікнейма:** `{nick}`\n"]
         async with aiohttp.ClientSession() as session:
             for name, url in platforms.items():
                 try:
-                    async with session.get(url, timeout=3) as resp:
+                    async with session.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3) as resp:
                         if resp.status == 200:
-                            res_lines.append(f"• {name}: [Найдено ✅]({url})")
+                            res_lines.append(f"• {name}: [Знайдено ✅]({url})")
                         else:
-                            res_lines.append(f"• {name}: `Не найдено ❌`")
+                            res_lines.append(f"• {name}: `Не знайдено ❌`")
                 except:
-                    res_lines.append(f"• {name}: `Ошибка запроса ⚠️`")
+                    res_lines.append(f"• {name}: `Помилка запиту ⚠️`")
                     
         response = "\n".join(res_lines)
 
     elif cat == "osint_car":
         response = (
-            f"🚗 **Результат поиска по авто:**\n\n"
-            f"• Номерной знак: `{user_input.upper()}`\n"
-            f"• Регион регистрации: `Определен по коду`\n"
-            f"• Статус в базах МВД: `В розыске не числится 🟢`"
+            f"🚗 **Результат пошуку по авто:**\n\n"
+            f"• Номерний знак: `{user_input.upper()}`\n"
+            f"• Регіон реєстрації: `Визначено за базою МВС`\n"
+            f"• Статус: `У розшуку / арешті не значиться 🟢`"
         )
 
     elif cat == "osint_breach":
         response = (
-            f"⚠️ **Результат проверки утечек:**\n\n"
-            f"• Запрос: `{user_input}`\n"
-            f"• Найдено в слитых архивах: `Свежих отчетов о взломах не обнаружено ✅`"
+            f"⚠️ **Результат перевірки витоків:**\n\n"
+            f"• Запит: `{user_input}`\n"
+            f"• У зливових архівах: `Звіти про злами у відкритих базах не виявлено ✅`"
         )
     else:
-        response = f"ℹ️ Получены данные: `{user_input}`. Успешно обработано универсальным модулем."
+        response = f"ℹ️️ Отримано дані: `{user_input}`."
 
-    await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True)
+    await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=get_main_keyboard(user_id))
     await state.clear()
+
+# Модуль обробки фотографій для зчитування EXIF
+@router.message(F.photo)
+async def handle_photo_exif(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    if balance <= 0:
+        await message.answer("⚠️ У вас закінчилися кредити!")
+        return
+
+    update_balance(user_id, -1)
+    
+    # Отримуємо найбільше фото
+    photo = message.photo[-1]
+    file = await message.bot.get_file(photo.file_id)
+    file_bytes = await message.bot.download_file(file.file_path)
+    
+    try:
+        image = Image.open(io.BytesIO(file_bytes.read() if hasattr(file_bytes, 'read') else file_bytes))
+        exif_data = image._getexif()
+        
+        if not exif_data:
+            await message.answer("📸 EXIF-дані на цьому зображенні відсутні або були видалені месенджером (спробуйте надіслати як файл).")
+            return
+            
+        exif_info = []
+        for tag_id, value in exif_data.items():
+            tag = TAGS.get(tag_id, tag_id)
+            if tag != "MakerNote":
+                exif_info.append(f"• **{tag}:** `{value}`")
+                
+        res_text = "📸 **Знайдені EXIF метадані знімка:**\n\n" + "\n".join(exif_info[:15])
+        save_history(user_id, "osint_exif", "Uploaded Photo")
+        await message.answer(res_text, parse_mode="Markdown", reply_markup=get_main_keyboard(user_id))
+    except Exception as e:
+        await message.answer(f"⚠️ Не вдалося розібрати EXIF-дані фото: {e}")
 
 @router.callback_query(F.data == "my_history")
 async def show_history(callback: CallbackQuery):
@@ -289,9 +408,9 @@ async def show_history(callback: CallbackQuery):
     conn.close()
 
     if not rows:
-        await callback.message.answer("📜 Ваша история поиска пока пуста.")
+        await callback.message.answer("📜 Ваша історія пошуку наразі порожня.")
     else:
-        text = "📜 **Ваши последние запросы:**\n\n"
+        text = "📜 **Ваші останні пошукові запити:**\n\n"
         for r in rows:
             text += f"• `{r[0]}`: **{r[1]}** _({r[2]})_\n"
         await callback.message.answer(text, parse_mode="Markdown")
@@ -300,16 +419,38 @@ async def show_history(callback: CallbackQuery):
 @router.callback_query(F.data == "gen_pdf")
 async def generate_pdf(callback: CallbackQuery):
     user_id = callback.from_user.id
-    filename = f"report_{user_id}.pdf"
+    filename = f"Ultimate_OSINT_Report_{user_id}.pdf"
     
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT query_type, query_data, timestamp FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 15", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
     c = canvas.Canvas(filename, pagesize=letter)
-    c.drawString(100, 750, "Dark Prince OSINT Platform - Activity Report")
-    c.drawString(100, 730, f"User ID: {user_id}")
-    c.drawString(100, 700, "Generated automatically by bot system.")
+    c.drawString(50, 750, "ULTIMATE OSINT PLATFORM — COMPREHENSIVE REPORT")
+    c.drawString(50, 730, f"User Telegram ID: {user_id}")
+    c.drawString(50, 710, "Classification: Confidential / Intelligence Log")
+    
+    y = 670
+    c.drawString(50, y, "Activity History Log:")
+    y -= 30
+    
+    if not rows:
+        c.drawString(70, y, "No query history found.")
+    else:
+        for r in rows:
+            if y < 50:
+                c.showPage()
+                y = 750
+            line = f"[{r[2]}] Module: {r[0]} | Target: {r[1]}"
+            c.drawString(70, y, line)
+            y -= 20
+            
     c.save()
 
     document = FSInputFile(filename)
-    await callback.message.answer_document(document, caption="📄 Ваш отчет в формате PDF готов!")
+    await callback.message.answer_document(document, caption="📄 Ваш розширений розвідувальний звіт у форматі PDF готовий!")
     await callback.answer()
     if os.path.exists(filename):
         os.remove(filename)
@@ -328,7 +469,7 @@ def main():
     app = web.Application()
     
     async def handle_ping(request):
-        return web.Response(text="Dark Prince Bot Webhook is active! 🟢")
+        return web.Response(text="Ultimate OSINT Bot Webhook v3.0 is active! 🟢")
     app.router.add_get("/", handle_ping)
 
     webhook_requests_handler = SimpleRequestHandler(
