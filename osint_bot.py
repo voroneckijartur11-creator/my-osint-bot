@@ -93,7 +93,6 @@ def get_stats():
 def add_to_db_history(chat_id, query, result_text=""):
     db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, query, result_text))
     db_conn.commit()
-    # Залишаємо тільки останні 5 запитів для користувача
     db_cursor.execute('''
         DELETE FROM history WHERE id NOT IN (
             SELECT id FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5
@@ -105,9 +104,8 @@ def add_to_db_history(chat_id, query, result_text=""):
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
 bot = telebot.TeleBot(TOKEN)
 
-# Антифлуд: словник для відстеження часу останнього повідомлення користувача
 last_message_time = {}
-ANTIFLUOD_DELAY = 1.5  секунди між запитами
+ANTIFLUOD_DELAY = 1.5
 
 def check_antifluod(chat_id):
     now = time.time()
@@ -157,14 +155,13 @@ def get_exif_data(image):
                 exif_data[decoded] = value
     return exif_data
 
-# --- КОМАНДИ ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
     log_user(message.chat.id)
     welcome_text = (
-        "🔥 **Вітаю в Ultimate OSINT Bot Max Pro+ (з Базою Даних SQLite)!**\n\n"
+        "🔥 **Вітаю в Ultimate OSINT Bot Max Pro+!**\n\n"
         "Доступні розширені інструменти розвідки та безпеки:\n"
-        "• 📱 Телефон, 📧 Пошта + перевірка витоків\n"
+        "• 📱 Телефон, 📧 Пошта\n"
         "• 🌐 IP, WHOIS, Сабдомени (crt.sh)\n"
         "• 👤 Пошук по соцмережах (Sherlock)\n"
         "• 🚗 Перевірка авто за номером та VIN\n"
@@ -213,7 +210,6 @@ def export_report_callback(call):
     bot.send_document(chat_id, document=bio, caption="📁 Ваш звіт розвідки")
     bot.answer_callback_query(call.id)
 
-# --- ОБРОБКА ФАЙЛІВ ТА ДОКУМЕНТІВ ---
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_files(message):
     if not check_antifluod(message.chat.id):
@@ -291,7 +287,6 @@ def handle_files(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка обробки файлу: {e}")
 
-# --- ОСНОВНА ЛОГІКА OSINT ---
 @bot.message_handler(func=lambda message: True)
 def process_osint(message):
     chat_id = message.chat.id
@@ -370,7 +365,6 @@ def process_osint(message):
 
     bot.reply_to(message, f"⚙️ Аналізую запит: `{data}`...", parse_mode="Markdown")
 
-    # 1. URL & SECURITY
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res = requests.get(data, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
@@ -387,7 +381,6 @@ def process_osint(message):
             bot.send_message(chat_id, "❌ Помилка доступу до URL.")
             return
 
-    # 2. IP / DOMAIN
     if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
         try:
             res = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
@@ -420,7 +413,6 @@ def process_osint(message):
         bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 3. VIN
     if re.match(r'^[A-HJ-NPR-Z0-9]{17}$', data.upper()):
         try:
             r = requests.get(f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/{data.upper()}?format=json", timeout=5).json()
@@ -432,7 +424,6 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 4. УКР АВТОНОМЕР
     clean_car = data.replace(" ", "").upper()
     if re.match(r'^[A-ZА-ЯІЇЄ]{2}\d{4}[A-ZА-ЯІЇЄ]{2}$', clean_car):
         text = f"🚗 **Автономер:** `{clean_car}`"
@@ -443,7 +434,6 @@ def process_osint(message):
         bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 5. КРИПТА
     if re.match(r'^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,39}$', data):
         r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
         bal = r.get('final_balance', 0) / 100000000
@@ -468,7 +458,6 @@ def process_osint(message):
         bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 6. ТЕЛЕФОН / EMAIL
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         num = phonenumbers.parse(data, "UA")
         text = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
@@ -486,7 +475,6 @@ def process_osint(message):
         except Exception:
             pass
 
-    # 7. SHERLOCK НІК
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
@@ -515,7 +503,6 @@ def process_osint(message):
     add_to_db_history(chat_id, data, res_text)
     bot.send_message(chat_id, res_text, parse_mode="Markdown", reply_markup=markup)
 
-# --- ЗАПУСК ---
 try:
     bot.remove_webhook()
     time.sleep(1)
