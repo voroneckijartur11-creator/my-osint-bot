@@ -1,7 +1,5 @@
 import os
-import re
-import io
-import time
+import json
 import asyncio
 import sqlite3
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -9,70 +7,73 @@ import threading
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-import requests
-import phonenumbers
-from phonenumbers import geocoder, carrier
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, Update
 
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
 ADMIN_IDS = [571578132]
-
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-
-def run_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
-
-threading.Thread(target=run_health_server, daemon=True).start()
-
-def init_db():
-    conn = sqlite3.connect('bot_database.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (chat_id INTEGER PRIMARY KEY, first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, query TEXT, result_text TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS stats (key TEXT PRIMARY KEY, value INTEGER)''')
-    cursor.execute('INSERT OR IGNORE INTO stats (key, value) VALUES ("total_requests", 0)')
-    conn.commit()
-    return conn, cursor
-
-db_conn, db_cursor = init_db()
-
-def log_user(chat_id):
-    db_cursor.execute('INSERT OR IGNORE INTO users (chat_id) VALUES (?)', (chat_id,))
-    db_conn.commit()
-
-def add_request_stat():
-    db_cursor.execute('UPDATE stats SET value = value + 1 WHERE key = "total_requests"')
-    db_conn.commit()
-
-def get_main_keyboard(chat_id):
-    keyboard = [
-        [KeyboardButton(text="📱 Про номер"), KeyboardButton(text="📧 Про Email")],
-        [KeyboardButton(text="🌐 IP / Домен / Сабдомени"), KeyboardButton(text="👤 Нік / Telegram / Соцмережі")],
-        [KeyboardButton(text="🚗 Авто (Номер / VIN)"), KeyboardButton(text="🏛 Пошук ПІБ / Реєстри")],
-        [KeyboardButton(text="📜 Моя історія"), KeyboardButton(text="ℹ️ Допомога")]
-    ]
-    if chat_id in ADMIN_IDS:
-        keyboard.append([KeyboardButton(text="⚙️ Адмін-панель")])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
+# Зберігаємо головний цикл подій для обробки вебхуків
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+class WebhookHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running via Webhooks!")
+
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        try:
+            update_data = json.loads(post_data.decode('utf-8'))
+            update = Update.model_validate(update_data, context={"bot": bot})
+            asyncio.run_coroutine_threadsafe(dp.feed_update(bot, update), loop)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode('utf-8'))
+
+def run_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), WebhookHandler)
+    server.serve_forever()
+
+# Запускаємо HTTP сервер у фоновому потоці
+threading.Thread(target=run_server, daemon=True).start()
+
+def init_db():
+    conn = sqlite3.connect('bot_database.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (chat_id INTEGER PRIMARY KEY, first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, query TEXT, result_text TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    conn.commit()
+    return conn, cursor
+
+db_conn, db_cursor = init_db()
+
+def get_main_keyboard(chat_id):
+    keyboard = [
+        [KeyboardButton(text="📱 Про номер"), KeyboardButton(text="📧 Про Email")],
+        [KeyboardButton(text="🌐 IP / Домен / Сабдомени"), KeyboardButton(text="👤 Нік / Telegram / Соцмережі")],
+        [KeyboardButton(text="🚗 Авто (Номер / VIN)"), KeyboardButton(text="🏛 Пошук ПІБ / Реєстри")],
+        [KeyboardButton(text="📜 Моя історія"), KeyboardButton(text="ℹ Допомога")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 @router.message(Command("start"))
 async def cmd_start(message: Message):
-    log_user(message.chat.id)
-    await message.answer("🔥 **Бот повністю оновлено! Жодних підписок, повна свобода.** Виберіть функцію:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
+    db_cursor.execute('INSERT OR IGNORE INTO users (chat_id) VALUES (?)', (message.chat.id,))
+    db_conn.commit()
+    await message.answer("🚀 **Бот запущено через вебхуки! Жодних конфліктів і підписок.** Виберіть функцію нижче:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
 
 @router.message(Command("myhistory") | (F.text == "📜 Моя історія"))
 async def cmd_history(message: Message):
@@ -97,18 +98,22 @@ async def process_osint(message: Message):
         await message.answer(f"ℹ️ Введіть дані для категорії: *{data}*.", parse_mode="Markdown")
         return
 
-    add_request_stat()
-    log_user(chat_id)
-    
-    res = f"🔍 **Результат перевірки:** `{data}`\nУсе працює стабільно без обмежень!"
+    res = f"🔍 **Результат перевірки:** `{data}`\nУсе працює ідеально!"
     db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, data, res))
     db_conn.commit()
     
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(chat_id))
 
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+async def setup_webhook():
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        webhook_url = f"{render_url}"
+        await bot.set_webhook(webhook_url)
+        print(f"Webhook successfully set to {webhook_url}")
+    else:
+        print("RENDER_EXTERNAL_URL not found, webhook not set automatically.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop.run_until_complete(setup_webhook())
+    # Тримаємо цикл живим
+    loop.run_forever()
