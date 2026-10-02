@@ -1,4 +1,4 @@
 packages = [
-  "tesseract-ocr",
-  "tesseract-ocr-ukr"
+    "tesseract-ocr",
+    "tesseract-ocr-ukr"
 ]
