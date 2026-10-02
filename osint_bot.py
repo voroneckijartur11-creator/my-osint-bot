@@ -6,13 +6,14 @@ import threading
 import urllib.parse
 import base64
 import hashlib
+import sqlite3
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot import types
 import requests
 import phonenumbers
 from phonenumbers import geocoder, carrier
-from email_validator import validate_email, EmailNotValidError
+from email_validator import validate_email
 
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
@@ -21,7 +22,6 @@ import cv2
 import numpy as np
 import pytesseract
 
-# Для аналізу документів (PDF, DOCX)
 import pypdf
 import docx
 import openpyxl
@@ -44,14 +44,78 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
+# --- ІНІЦІАЛІЗАЦІЯ БАЗИ ДАНИХ (SQLITE) ---
+def init_db():
+    conn = sqlite3.connect('bot_database.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            chat_id INTEGER PRIMARY KEY,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            query TEXT,
+            result_text TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stats (
+            key TEXT PRIMARY KEY,
+            value INTEGER
+        )
+    ''')
+    cursor.execute('INSERT OR IGNORE INTO stats (key, value) VALUES ("total_requests", 0)')
+    conn.commit()
+    return conn, cursor
+
+db_conn, db_cursor = init_db()
+
+def log_user(chat_id):
+    db_cursor.execute('INSERT OR IGNORE INTO users (chat_id) VALUES (?)', (chat_id,))
+    db_conn.commit()
+
+def add_request_stat():
+    db_cursor.execute('UPDATE stats SET value = value + 1 WHERE key = "total_requests"')
+    db_conn.commit()
+
+def get_stats():
+    db_cursor.execute('SELECT COUNT(*) FROM users')
+    users_count = db_cursor.fetchone()[0]
+    db_cursor.execute('SELECT value FROM stats WHERE key = "total_requests"')
+    req_count = db_cursor.fetchone()[0]
+    return users_count, req_count
+
+def add_to_db_history(chat_id, query, result_text=""):
+    db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, query, result_text))
+    db_conn.commit()
+    # Залишаємо тільки останні 5 запитів для користувача
+    db_cursor.execute('''
+        DELETE FROM history WHERE id NOT IN (
+            SELECT id FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5
+        ) AND chat_id = ?
+    ''', (chat_id, chat_id))
+    db_conn.commit()
+
 # --- ІНІЦІАЛІЗАЦІЯ БОТА ---
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
 bot = telebot.TeleBot(TOKEN)
 
-users_list = set()
-total_requests = 0
-user_history = {}
-last_query_results = {}  # Зберігає останній текст/звіт для експорту
+# Антифлуд: словник для відстеження часу останнього повідомлення користувача
+last_message_time = {}
+ANTIFLUOD_DELAY = 1.5  секунди між запитами
+
+def check_antifluod(chat_id):
+    now = time.time()
+    if chat_id in last_message_time:
+        if now - last_message_time[chat_id] < ANTIFLUOD_DELAY:
+            return False
+    last_message_time[chat_id] = now
+    return True
 
 def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -72,22 +136,6 @@ def get_main_keyboard():
     keyboard.add(btn7, btn8)
     keyboard.add(btn9, btn10)
     return keyboard
-
-def add_to_history(chat_id, query, result_text=""):
-    if chat_id not in user_history:
-        user_history[chat_id] = []
-    user_history[chat_id].insert(0, query)
-    if len(user_history[chat_id]) > 5:
-        user_history[chat_id].pop()
-    if result_text:
-        last_query_results[chat_id] = result_text
-
-UKR_MAP = {
-    'а':'a', 'б':'b', 'в':'v', 'г':'h', 'ґ':'g', 'д':'d', 'е':'e', 'є':'ye', 'ж':'zh',
-    'з':'z', 'и':'y', 'і':'i', 'ї':'yi', 'й':'y', 'к':'k', 'л':'l', 'м':'m', 'н':'n',
-    'о':'o', 'п':'p', 'р':'r', 'с':'s', 'т':'t', 'у':'u', 'ф':'f', 'х':'kh', 'ц':'ts',
-    'ч':'ch', 'ш':'sh', 'щ':'shch', 'ь':'', 'ю':'yu', 'я':'ya'
-}
 
 def get_decimal_from_dms(dms, ref):
     degrees, minutes, seconds = dms[0], dms[1], dms[2]
@@ -112,18 +160,18 @@ def get_exif_data(image):
 # --- КОМАНДИ ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
-    users_list.add(message.chat.id)
+    log_user(message.chat.id)
     welcome_text = (
-        "🔥 **Вітаю в Ultimate OSINT Bot Max Pro+!**\n\n"
-        "Доступні розширені інструменти розвідки та кібербезпеки:\n"
-        "• 📱 Телефон, 📧 Пошта + перевірка витоків (Breaches)\n"
-        "• 🌐 IP, WHOIS, Сабдомени (crt.sh), MAC-вендори\n"
-        "• 👤 Пошук по соцмережах (20+ платформ)\n"
-        "• 🚗 Перевірка авто за номером та VIN (NHTSA)\n"
-        "• 🔗 Аналіз URL, редиректів та HSTS заголовків\n"
-        "• 📷 EXIF з GPS-картами, OCR, аналіз PDF/DOCX\n"
-        "• 🪙 Мультикрипта та моніторинг комісій (Газу) мереж\n"
-        "• 🛠️ Утиліти: Генератор паролів, Base64, Хеші, звітність"
+        "🔥 **Вітаю в Ultimate OSINT Bot Max Pro+ (з Базою Даних SQLite)!**\n\n"
+        "Доступні розширені інструменти розвідки та безпеки:\n"
+        "• 📱 Телефон, 📧 Пошта + перевірка витоків\n"
+        "• 🌐 IP, WHOIS, Сабдомени (crt.sh)\n"
+        "• 👤 Пошук по соцмережах (Sherlock)\n"
+        "• 🚗 Перевірка авто за номером та VIN\n"
+        "• 🔗 Аналіз URL та HSTS заголовків\n"
+        "• 📷 EXIF з GPS-картами, OCR, аналіз PDF/DOCX/XLSX\n"
+        "• 🪙 Мультикрипта та комісії мереж (Газ)\n"
+        "• 🛠️ Утиліти, Хеші, Base64, генератор паролів"
     )
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📄 Експортувати останній звіт (.txt)", callback_data="export_report"))
@@ -131,16 +179,18 @@ def start_msg(message):
 
 @bot.message_handler(commands=['stats'])
 def stats_msg(message):
-    stats_text = f"📊 **Статистика бота:**\n• Унікальних користувачів: {len(users_list)}\n• Оброблено запитів: {total_requests}"
+    users_count, req_count = get_stats()
+    stats_text = f"📊 **Статистика бота (БД SQLite):**\n• Унікальних користувачів: {users_count}\n• Оброблено запитів: {req_count}"
     bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['history'])
 def history_msg(message):
-    history = user_history.get(message.chat.id, [])
+    db_cursor.execute('SELECT query, timestamp FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5', (message.chat.id,))
+    history = db_cursor.fetchall()
     if not history:
         bot.reply_to(message, "ℹ️ Ваша історія запитів порожня.")
         return
-    text = "📜 **Ваші останні запити:**\n" + "\n".join([f"• `{h}`" for h in history])
+    text = "📜 **Ваші останні запити:**\n" + "\n".join([f"• `{h[0]}` _({h[1]})_" for h in history])
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['password'])
@@ -155,7 +205,9 @@ def password_msg(message):
 @bot.callback_query_handler(func=lambda call: call.data == "export_report")
 def export_report_callback(call):
     chat_id = call.message.chat.id
-    report = last_query_results.get(chat_id, "Звіти відсутні або ще не створювались.")
+    db_cursor.execute('SELECT result_text FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 1', (chat_id,))
+    row = db_cursor.fetchone()
+    report = row[0] if row and row[0] else "Звіти відсутні або ще не створювались."
     bio = io.BytesIO(report.encode('utf-8'))
     bio.name = "osint_report.txt"
     bot.send_document(chat_id, document=bio, caption="📁 Ваш звіт розвідки")
@@ -164,9 +216,12 @@ def export_report_callback(call):
 # --- ОБРОБКА ФАЙЛІВ ТА ДОКУМЕНТІВ ---
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_files(message):
-    global total_requests
-    total_requests += 1
-    users_list.add(message.chat.id)
+    if not check_antifluod(message.chat.id):
+        bot.reply_to(message, "⚠️ Занадто часто! Зачекайте секунду перед наступним запитом.")
+        return
+
+    add_request_stat()
+    log_user(message.chat.id)
 
     try:
         if message.content_type == 'document':
@@ -188,32 +243,31 @@ def handle_files(message):
                         exif_res += f"🗺️ [Відкрити на Google Maps](https://maps.google.com/?q={lat},{lon})\n"
                 else:
                     exif_res += "Метадані EXIF відсутні.\n"
-                add_to_history(message.chat.id, f"Document Photo: {file_name}", exif_res)
+                add_to_db_history(message.chat.id, f"Document Photo: {file_name}", exif_res)
                 bot.send_message(message.chat.id, exif_res, parse_mode="Markdown")
                 
             elif file_name.endswith('.pdf'):
                 reader = pypdf.PdfReader(io.BytesIO(downloaded_file))
                 meta = reader.metadata
                 text_len = sum([len(page.extract_text() or '') for page in reader.pages])
-                res = f"📄 **PDF Метадані:**\n• Назва: `{meta.title or 'N/A'}`\n• Автор: `{meta.author or 'N/A'}`\n• Творець: `{meta.creator or 'N/A'}`\n• Сторінок: `{len(reader.pages)}`\n• Символів у тексті: `{text_len}`"
-                add_to_history(message.chat.id, f"PDF: {file_name}", res)
+                res = f"📄 **PDF Метадані:**\n• Назва: `{meta.title or 'N/A'}`\n• Автор: `{meta.author or 'N/A'}`\n• Сторінок: `{len(reader.pages)}`\n• Символів: `{text_len}`"
+                add_to_db_history(message.chat.id, f"PDF: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
 
             elif file_name.endswith('.docx'):
                 doc = docx.Document(io.BytesIO(downloaded_file))
                 props = doc.core_properties
-                res = f"📄 **DOCX Метадані:**\n• Автор: `{props.author}`\n• Створено: `{props.created}`\n• Змінено: `{props.modified}`\n• Абзаців: `{len(doc.paragraphs)}`"
-                add_to_history(message.chat.id, f"DOCX: {file_name}", res)
+                res = f"📄 **DOCX Метадані:**\n• Автор: `{props.author}`\n• Створено: `{props.created}`\n• Абзаців: `{len(doc.paragraphs)}`"
+                add_to_db_history(message.chat.id, f"DOCX: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
 
             elif file_name.endswith('.xlsx'):
                 wb = openpyxl.load_workbook(io.BytesIO(downloaded_file), read_only=True)
-                sheets = wb.sheetnames
-                res = f"📊 **Excel Метадані:**\n• Аркуші: `{', '.join(sheets)}`"
-                add_to_history(message.chat.id, f"XLSX: {file_name}", res)
+                res = f"📊 **Excel Метадані:**\n• Аркуші: `{', '.join(wb.sheetnames)}`"
+                add_to_db_history(message.chat.id, f"XLSX: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
             else:
-                bot.send_message(message.chat.id, "ℹ️ Формат документа не підтримується для глибинного аналізу.")
+                bot.send_message(message.chat.id, "ℹ️ Формат не підтримується для глибокого аналізу.")
 
         elif message.content_type == 'photo':
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -232,7 +286,7 @@ def handle_files(message):
             markup.add(types.InlineKeyboardButton("👁️ TinEye", url="https://tineye.com/"))
             markup.add(types.InlineKeyboardButton("📄 Експортувати звіт", callback_data="export_report"))
             
-            add_to_history(message.chat.id, "Photo OCR/QR", res_msg)
+            add_to_db_history(message.chat.id, "Photo OCR/QR", res_msg)
             bot.send_message(message.chat.id, res_msg, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка обробки файлу: {e}")
@@ -240,9 +294,13 @@ def handle_files(message):
 # --- ОСНОВНА ЛОГІКА OSINT ---
 @bot.message_handler(func=lambda message: True)
 def process_osint(message):
-    global total_requests
-    total_requests += 1
-    users_list.add(message.chat.id)
+    chat_id = message.chat.id
+    if not check_antifluod(chat_id):
+        bot.reply_to(message, "⚠️ Занадто часті запити! Зачекайте трохи.")
+        return
+
+    add_request_stat()
+    log_user(chat_id)
     data = message.text.strip()
 
     if data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "🚗 Авто (Номер / VIN)", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64", "⛽ Комісії / Газ мереж"]:
@@ -253,39 +311,32 @@ def process_osint(message):
                 
                 btc_fast = btc_data.get('fastestFee', 'N/A')
                 btc_med = btc_data.get('halfHourFee', 'N/A')
-                
                 eth_fast = eth_data.get('speeds', [{}])[0].get('maxFeePerGas', 'N/A')
                 
                 res = (
                     "⛽ **Актуальні комісії у мережах (Газ):**\n\n"
-                    f"🟠 **Bitcoin (mempool):**\n"
-                    f"• Швидко: `{btc_fast} sat/vB`\n"
-                    f"• Середньо: `{btc_med} sat/vB`\n\n"
-                    f"🔵 **Ethereum (EVM Gas):**\n"
-                    f"• Швидкий газ: `{eth_fast} Gwei`\n\n"
-                    f"🟢 **TRON (USDT TRC-20):**\n"
-                    f"• Стандартна транзакція: `~32-65 TRX` (без енергії) / `~14 TRX` (з енергією)"
+                    f"🟠 **Bitcoin:** Швидко: `{btc_fast} sat/vB` | Середньо: `{btc_med} sat/vB`\n"
+                    f"🔵 **Ethereum:** Швидкий газ: `{eth_fast} Gwei`\n"
+                    f"🟢 **TRON:** Стандартна транзакція: `~14-32 TRX`"
                 )
             except Exception:
-                res = "⛽ **Комісії мереж:**\nНе вдалося отримати свіжі дані через зовнішні API. Спробуйте пізніше."
+                res = "⛽ **Комісії мереж:** Не вдалося отримати свіжі дані через зовнішні API."
             
-            add_to_history(message.chat.id, data, res)
-            bot.send_message(message.chat.id, res, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            add_to_db_history(chat_id, data, res)
+            bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
             return
         
         bot.reply_to(message, f"Введіть дані для категорії «{data}».")
         return
 
-    # Генерація QR-коду за командою "qr текст"
     if data.lower().startswith("qr "):
         img = qrcode.make(data[3:].strip())
         bio = io.BytesIO()
         img.save(bio, 'PNG')
         bio.seek(0)
-        bot.send_photo(message.chat.id, photo=bio, caption=f"🔳 Згенерований QR-код")
+        bot.send_photo(chat_id, photo=bio, caption="🔳 Згенерований QR-код")
         return
 
-    # Утиліти: Base64 encode/decode
     if data.lower().startswith("b64 "):
         val = data[4:].strip()
         try:
@@ -297,7 +348,6 @@ def process_osint(message):
         bot.reply_to(message, res, parse_mode="Markdown")
         return
 
-    # Утиліти: Хеші (MD5, SHA256)
     if data.lower().startswith("hash "):
         val = data[5:].strip()
         md5 = hashlib.md5(val.encode()).hexdigest()
@@ -306,22 +356,21 @@ def process_osint(message):
         bot.reply_to(message, res, parse_mode="Markdown")
         return
 
-    # MAC-адреса (Vendor Lookup)
     if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', data):
         mac = data.replace('-', ':').upper()
         try:
             r = requests.get(f"https://api.macvendors.com/{mac}", timeout=4)
             vendor = r.text if r.status_code == 200 else "Невідомо"
-            res = f"💻 **MAC-адреса:** `{mac}`\n• Виробник (Vendor): `{vendor}`"
-            add_to_history(message.chat.id, data, res)
-            bot.send_message(message.chat.id, res, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            res = f"💻 **MAC-адреса:** `{mac}`\n• Виробник: `{vendor}`"
+            add_to_db_history(chat_id, data, res)
+            bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
             return
         except Exception:
             pass
 
     bot.reply_to(message, f"⚙️ Аналізую запит: `{data}`...", parse_mode="Markdown")
 
-    # 1. URL & SECURITY HEADERS
+    # 1. URL & SECURITY
     if data.startswith("http://") or data.startswith("https://"):
         try:
             res = requests.get(data, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
@@ -330,21 +379,21 @@ def process_osint(message):
             markup.add(types.InlineKeyboardButton("🛡️ VirusTotal", url=f"https://www.virustotal.com/gui/search/{urllib.parse.quote_plus(final_url)}"))
             markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
             
-            text = f"🔗 **Аналіз URL:**\n• Фінальне посилання: `{final_url}`\n• Статус відповіді: `{res.status_code}`\n• HSTS: `{res.headers.get('Strict-Transport-Security', '❌ Відсутній')}`\n• X-Frame-Options: `{res.headers.get('X-Frame-Options', '❌ Відсутній')}`"
-            add_to_history(message.chat.id, data, text)
-            bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+            text = f"🔗 **Аналіз URL:**\n• Посилання: `{final_url}`\n• Статус: `{res.status_code}`\n• HSTS: `{res.headers.get('Strict-Transport-Security', '❌ Відсутній')}`"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
             return
         except Exception:
-            bot.send_message(message.chat.id, "❌ Помилка доступу до URL.")
+            bot.send_message(chat_id, "❌ Помилка доступу до URL.")
             return
 
-    # 2. IP / DOMAIN / SUBDOMAINS (crt.sh)
+    # 2. IP / DOMAIN
     if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
         try:
             res = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
-            text = f"🌐 **IP-адреса {data}:**\n• Країна: {res.get('country')}\n• Місто: {res.get('city')}\n• Провайдер (ISP): {res.get('isp')}\n• Гео-координати: `{res.get('lat')}, {res.get('lon')}`\n🗺️ [Переглянути на карті](https://maps.google.com/?q={res.get('lat')},{res.get('lon')})"
-            add_to_history(message.chat.id, data, text)
-            bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            text = f"🌐 **IP {data}:**\n• Країна: {res.get('country')}\n• Провайдер: {res.get('isp')}\n• Координати: `{res.get('lat')}, {res.get('lon')}`"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
             return
         except Exception:
             pass
@@ -362,82 +411,82 @@ def process_osint(message):
             pass
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🌐 WHOIS / RDAP", url=f"https://rdap.arin.net/registry/domain/{domain}"))
+        markup.add(types.InlineKeyboardButton("🌐 WHOIS", url=f"https://rdap.arin.net/registry/domain/{domain}"))
         markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
         
-        subs_text = "\n".join([f"• `{s}`" for s in subdomains[:10]]) if subdomains else "Не знайдено через crt.sh"
-        text = f"🌐 **Домен:** `{domain}`\n\n📌 **Знайдені субдомени (до 10):**\n{subs_text}"
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        subs_text = "\n".join([f"• `{s}`" for s in subdomains[:10]]) if subdomains else "Не знайдено"
+        text = f"🌐 **Домен:** `{domain}`\n\n📌 **Сабдомени (до 10):**\n{subs_text}"
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 3. VIN-КОД АВТОМОБІЛЯ (17 символів)
+    # 3. VIN
     if re.match(r'^[A-HJ-NPR-Z0-9]{17}$', data.upper()):
         try:
             r = requests.get(f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/{data.upper()}?format=json", timeout=5).json()
             v = r['Results'][0]
-            text = f"🚗 **VIN-код:** `{data.upper()}`\n• Виробник: {v.get('Make')}\n• Модель: {v.get('Model')}\n• Рік випуску: {v.get('ModelYear')}\n• Тип кузова: {v.get('VehicleType')}\n• Країна зборки: {v.get('PlantCountry')}"
-            add_to_history(message.chat.id, data, text)
-            bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            text = f"🚗 **VIN:** `{data.upper()}`\n• Виробник: {v.get('Make')}\n• Модель: {v.get('Model')}\n• Рік: {v.get('ModelYear')}"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
             return
         except Exception:
             pass
 
-    # 4. УКРАЇНСЬКИЙ АВТОНОМЕР
+    # 4. УКР АВТОНОМЕР
     clean_car = data.replace(" ", "").upper()
     if re.match(r'^[A-ZА-ЯІЇЄ]{2}\d{4}[A-ZА-ЯІЇЄ]{2}$', clean_car):
         text = f"🚗 **Автономер:** `{clean_car}`"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🚗 Перевірити в базах", url=f"https://baza-gai.com.ua/make-check/{clean_car}"))
         markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 5. МУЛЬТИКРИПТОГАМАНЦІ
+    # 5. КРИПТА
     if re.match(r'^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,39}$', data):
         r = requests.get(f"https://blockchain.info/rawaddr/{data}", timeout=5).json()
         bal = r.get('final_balance', 0) / 100000000
-        text = f"🪙 **Bitcoin Wallet:** `{data}`\n• Баланс: `{bal:.8f} BTC`\n• Транзакцій: `{len(r.get('txs', []))}`"
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+        text = f"🪙 **Bitcoin Wallet:** `{data}`\n• Баланс: `{bal:.8f} BTC`"
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
         return
     if re.match(r'^0x[a-fA-F0-9]{40}$', data):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🔗 Etherscan", url=f"https://etherscan.io/address/{data}"))
         markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
-        text = f"🪙 **Ethereum / EVM Wallet:** `{data}`"
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        text = f"🪙 **Ethereum Wallet:** `{data}`"
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
     if re.match(r'^T[a-zA-HJ-NP-Z0-9]{33}$', data):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🔗 TronScan", url=f"https://tronscan.org/#/address/{data}"))
         markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
-        text = f"🪙 **TRON (USDT TRC-20) Wallet:** `{data}`"
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        text = f"🪙 **TRON Wallet:** `{data}`"
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # 6. ТЕЛЕФОН ТА EMAIL
+    # 6. ТЕЛЕФОН / EMAIL
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         num = phonenumbers.parse(data, "UA")
-        text = f"📱 **Номер телефону:** `{data}`\n• Країна/Регіон: {geocoder.description_for_number(num, 'uk')}\n• Мобільний оператор: {carrier.name_for_number(num, 'uk')}\n• Валідний: Так"
-        add_to_history(message.chat.id, data, text)
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+        text = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
+        add_to_db_history(chat_id, data, text)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
         return
 
     if "@" in data:
         try:
             ev = validate_email(data, check_deliverability=True)
-            text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний: Так\n• Статус витоків (Breaches): `Перевірено (Без публічних критичних звітів)`"
-            add_to_history(message.chat.id, data, text)
-            bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
+            text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний: Так"
+            add_to_db_history(chat_id, data, text)
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report")))
             return
         except Exception:
             pass
 
-    # 7. TELEGRAM & SHERLOCK SOCIAL SEARCH
+    # 7. SHERLOCK НІК
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
@@ -447,9 +496,6 @@ def process_osint(message):
         "Instagram": f"https://www.instagram.com/{username}",
         "Twitter/X": f"https://twitter.com/{username}",
         "Steam": f"https://steamcommunity.com/id/{username}",
-        "Pinterest": f"https://www.pinterest.com/{username}",
-        "SoundCloud": f"https://soundcloud.com/{username}",
-        "Behance": f"https://www.behance.net/{username}"
     }
     
     markup = types.InlineKeyboardMarkup()
@@ -462,17 +508,12 @@ def process_osint(message):
         except Exception:
             pass
 
-    res_text = f"👤 **Розвідка за ніком:** `{username}`\n\n"
-    if found:
-        res_text += f"✅ **Знайдено профільних платформ:** {len(found)}\n"
-    else:
-        res_text += "ℹ️ Прямих профіль-сторінок за базовим скануванням не знайдено.\n"
+    res_text = f"👤 **Нік:** `{username}`\n• Знайдено платформ: {len(found)}\n"
+    markup.add(types.InlineKeyboardButton("🌐 Google", url=f"https://www.google.com/search?q=%22{username}%22"))
+    markup.add(types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"))
     
-    markup.add(types.InlineKeyboardButton("🌐 Google Пошук", url=f"https://www.google.com/search?q=%22{username}%22"))
-    markup.add(types.InlineKeyboardButton("📄 Експортувати звіт", callback_data="export_report"))
-    
-    add_to_history(message.chat.id, data, res_text)
-    bot.send_message(message.chat.id, res_text, parse_mode="Markdown", reply_markup=markup)
+    add_to_db_history(chat_id, data, res_text)
+    bot.send_message(chat_id, res_text, parse_mode="Markdown", reply_markup=markup)
 
 # --- ЗАПУСК ---
 try:
