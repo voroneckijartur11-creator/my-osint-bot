@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 import sqlite3
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -7,48 +6,28 @@ import threading
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, Update
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
 ADMIN_IDS = [571578132]
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
-
-# Зберігаємо головний цикл подій для обробки вебхуків
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-class WebhookHandler(BaseHTTPRequestHandler):
+# Простий HTTP-сервер для того, щоб Render не вимикав сервіс (health check)
+class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is running via Webhooks!")
+        self.wfile.write(b"OK")
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
-    def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        try:
-            update_data = json.loads(post_data.decode('utf-8'))
-            update = Update.model_validate(update_data, context={"bot": bot})
-            asyncio.run_coroutine_threadsafe(dp.feed_update(bot, update), loop)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(str(e).encode('utf-8'))
-
-def run_server():
+def run_health_server():
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), WebhookHandler)
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# Запускаємо HTTP сервер у фоновому потоці
-threading.Thread(target=run_server, daemon=True).start()
+# Запускаємо сервер перевірки здоров'я у фоновому потоці
+threading.Thread(target=run_health_server, daemon=True).start()
 
 def init_db():
     conn = sqlite3.connect('bot_database.db', check_same_thread=False)
@@ -69,11 +48,16 @@ def get_main_keyboard(chat_id):
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
+
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     db_cursor.execute('INSERT OR IGNORE INTO users (chat_id) VALUES (?)', (message.chat.id,))
     db_conn.commit()
-    await message.answer("🚀 **Бот запущено через вебхуки! Жодних конфліктів і підписок.** Виберіть функцію нижче:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
+    await message.answer("🚀 **Бот успішно запущено!** Виберіть функцію нижче:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
 
 @router.message(Command("myhistory") | (F.text == "📜 Моя історія"))
 async def cmd_history(message: Message):
@@ -104,16 +88,11 @@ async def process_osint(message: Message):
     
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(chat_id))
 
-async def setup_webhook():
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        webhook_url = f"{render_url}"
-        await bot.set_webhook(webhook_url)
-        print(f"Webhook successfully set to {webhook_url}")
-    else:
-        print("RENDER_EXTERNAL_URL not found, webhook not set automatically.")
+async def main():
+    # Очищаємо залишки старих вебхуків перед запуском
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("Bot started polling...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    loop.run_until_complete(setup_webhook())
-    # Тримаємо цикл живим
-    loop.run_forever()
+    asyncio.run(main())
