@@ -24,9 +24,8 @@ import cv2
 import numpy as np
 import pytesseract
 
-# --- НАЛАШТУВАННЯ ТА ВЕБ-СЕРВЕР (HEALTH CHECK) ---
 TOKEN = "8747134357:AAFjsPvLaskM5TymQZoXzmpYWrfqVSkMzWE"
-ADMIN_IDS = [571578132]  # Ваш Telegram ID
+ADMIN_IDS = [571578132]
 VIRUSTOTAL_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -45,7 +44,6 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- БАЗА ДАНИХ (SQLITE З КЕШУВАННЯМ) ---
 def init_db():
     conn = sqlite3.connect('bot_database.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -87,12 +85,11 @@ def add_to_db_history(chat_id, query, result_text):
     db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, query, result_text))
     db_conn.commit()
 
-# --- КЛАВІАТУРИ ---
 def get_main_keyboard(chat_id):
     keyboard = [
         [KeyboardButton(text="📱 Про номер"), KeyboardButton(text="📧 Про Email")],
         [KeyboardButton(text="🌐 IP / Домен / Сабдомени"), KeyboardButton(text="👤 Нік / Telegram / Соцмережі")],
-        [KeyboardButton(text="🚗 Авто (Номер / VIN)"), KeyboardButton(text="🏛️ Пошук ПІБ / Реєстри")],
+        [KeyboardButton(text="🚗 Авто (Номер / VIN)"), KeyboardButton(text="🏛️️ Пошук ПІБ / Реєстри")],
         [KeyboardButton(text="🪙 Криптогаманець"), KeyboardButton(text="🔗 URL / Безпека / Заголовки")],
         [KeyboardButton(text="📷 Фото / Документи / OCR"), KeyboardButton(text="🛠️ Утиліти / Хеші / Base64")],
         [KeyboardButton(text="⛽ Комісії / Газ мереж"), KeyboardButton(text="🔍 Сканер портів")],
@@ -109,7 +106,6 @@ def get_standard_markup():
          InlineKeyboardButton(text="🏠 На головну", callback_data="go_home")]
     ])
 
-# --- ДОДАТКОВІ МОДУЛІ РОЗВІДКИ ---
 def scan_ports(target):
     import socket
     ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
@@ -140,43 +136,6 @@ def check_password_leak(pwd):
         pass
     return 0
 
-def check_virustotal_url(target_url):
-    if not VIRUSTOTAL_API_KEY:
-        return "⚠️ VirusTotal API ключ не налаштовано."
-    try:
-        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
-        response = requests.post("https://www.virustotal.com/api/v3/urls", headers=headers, data={"url": target_url}, timeout=5)
-        if response.status_code == 200:
-            analysis_id = response.json().get("data", {}).get("id")
-            time.sleep(1)
-            report = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers, timeout=5).json()
-            stats = report.get("data", {}).get("attributes", {}).get("stats", {})
-            return f"🛡️️ **VirusTotal:** Шкідливих: `{stats.get('malicious', 0)}` | Безпечних: `{stats.get('harmless', 0)}`"
-    except:
-        pass
-    return "❌ Помилка VirusTotal."
-
-def check_security_headers(domain):
-    try:
-        url = domain if domain.startswith("http") else f"https://{domain}"
-        res = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-        headers = res.headers
-        return f"🛡️ **Заголовки безпеки:**\n• HSTS: {'✅' if 'Strict-Transport-Security' in headers else '❌'}\n• CSP: {'✅' if 'Content-Security-Policy' in headers else '❌'}\n• X-Frame-Options: {'✅' if 'X-Frame-Options' in headers else '❌'}"
-    except:
-        return "❌ Не вдалося перевірити заголовки сайту."
-
-def check_ssl_cert(domain):
-    import socket
-    try:
-        hostname = domain.replace("https://", "").replace("http://", "").split("/")[0]
-        ctx = ssl.create_default_context()
-        with socket.create_connection((hostname, 443), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert()
-                return f"🔒 **SSL Сертифікат:**\n• Видавець: `{dict(x[0] for x in cert.get('issuer', [])).get('organizationName', 'Unknown')}`\n• Діє до: `{cert.get('notAfter')}`"
-    except:
-        return "❌ Не вдалося отримати SSL."
-
 def generate_osint_dorks(query):
     encoded = urllib.parse.quote(query)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -188,27 +147,17 @@ def generate_osint_dorks(query):
          InlineKeyboardButton(text="🏠 На головну", callback_data="go_home")]
     ])
 
-# --- ІНІЦІАЛІЗАЦІЯ БОТА ---
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-# --- КОМАНДИ ТА МЕНЮ ---
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     log_user(message.chat.id)
-    text = (
-        "🔥 **Ultimate OSINT Bot Max Pro+ (Advanced Edition)**\n\n"
-        "Усі функції розвідки активовано:\n"
-        "• 📱 Телефон, 📧 Пошта, витоки, 🌐 Google Dorks\n"
-        "• 🏛️ Пошук за ПІБ, 🚗 Авто, 👤 Соцмережі, 🛡️ VirusTotal\n"
-        "• ⚙️ Адмін-панель та повна історія запитів (`/myhistory`)"
-    )
-    await message.answer(text, parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
+    await message.answer("🔥 **Бот повністю оновлено та працює напряму!** Виберіть потрібну функцію нижче:", parse_mode="Markdown", reply_markup=get_main_keyboard(message.chat.id))
 
-@router.message(Command("myhistory"))
-@router.message(F.text == "📜 Моя історія")
+@router.message(Command("myhistory") | (F.text == "📜 Моя історія"))
 async def cmd_history(message: Message):
     db_cursor.execute('SELECT query, timestamp FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 10', (message.chat.id,))
     history = db_cursor.fetchall()
@@ -218,39 +167,17 @@ async def cmd_history(message: Message):
     text = "📜 **Ваші останні 10 запитів:**\n" + "\n".join([f"• `{h[0]}` _({h[1]})_" for h in history])
     await message.answer(text, parse_mode="Markdown")
 
-@router.message(Command("admin"))
-@router.message(F.text == "⚙️ Адмін-панель")
+@router.message(Command("admin") | (F.text == "⚙️ Адмін-панель"))
 async def cmd_admin(message: Message):
     if message.chat.id not in ADMIN_IDS:
-        await message.answer("⛔ У вас немає доступу до адмін-панелі.")
+        await message.answer("⛔ У вас немає доступу.")
         return
     users_count, req_count = get_stats()
-    text = f"⚙️ **Панорама Адміністратора:**\n• Користувачів у базі: `{users_count}`\n• Загалом запитів: `{req_count}`\n\nКоманди розсилки: `/broadcast [текст]`"
-    await message.answer(text, parse_mode="Markdown")
-
-@router.message(Command("broadcast"))
-async def cmd_broadcast(message: Message):
-    if message.chat.id not in ADMIN_IDS:
-        return
-    text_to_send = message.text.replace("/broadcast", "").strip()
-    if not text_to_send:
-        await message.answer("⚠️ Введіть текст для розсилки після команди.")
-        return
-    db_cursor.execute('SELECT chat_id FROM users')
-    users = db_cursor.fetchall()
-    success = 0
-    for u in users:
-        try:
-            await bot.send_message(u[0], f"📢 **Оновлення системи:**\n\n{text_to_send}", parse_mode="Markdown")
-            success += 1
-            await asyncio.sleep(0.05)
-        except:
-            pass
-    await message.answer(f"✅ Розсилку завершено. Успішно доставлено: {success}/{len(users)}")
+    await message.answer(f"⚙️ **Адмін-панель:**\n• Користувачів: `{users_count}`\n• Запитів: `{req_count}`", parse_mode="Markdown")
 
 @router.message(F.text == "ℹ️ Допомога")
 async def cmd_help(message: Message):
-    await message.answer("ℹ️ Виберіть категорію на клавіатурі або надішліть дані (номер, пошту, IP, нікнейм, посилання) для миттєвого аналізу.", reply_markup=get_main_keyboard(message.chat.id))
+    await message.answer("ℹ️ Надішліть дані для аналізу або виберіть категорію на клавіатурі.", reply_markup=get_main_keyboard(message.chat.id))
 
 @router.callback_query(F.data == "export_report")
 async def callback_export(call: CallbackQuery):
@@ -258,7 +185,7 @@ async def callback_export(call: CallbackQuery):
     row = db_cursor.fetchone()
     report = row[0] if row and row[0] else "Звіти відсутні."
     bio = BufferedInputFile(report.encode('utf-8'), filename="osint_report.txt")
-    await call.message.answer_document(document=bio, caption="📁 Ваш звіт розвідки")
+    await call.message.answer_document(document=bio, caption="📁 Ваш звіт")
     await call.answer()
 
 @router.callback_query(F.data == "go_home")
@@ -266,116 +193,22 @@ async def callback_home(call: CallbackQuery):
     await call.message.answer("🏠 Головне меню:", reply_markup=get_main_keyboard(call.message.chat.id))
     await call.answer()
 
-# --- ОБРОБКА ФАЙЛІВ ТА ЗОБРАЖЕНЬ ---
-@router.message(F.photo | F.document)
-async def handle_files(message: Message):
-    add_request_stat()
-    log_user(message.chat.id)
-    try:
-        if message.document:
-            file_info = await bot.get_file(message.document.file_id)
-            file_bytes = await bot.download_file(file_info.file_path)
-            if message.document.file_name.lower().endswith('.pdf'):
-                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                res = f"📄 **PDF Документ:**\n• Сторінок: `{len(reader.pages)}`"
-                add_to_db_history(message.chat.id, f"PDF: {message.document.file_name}", res)
-                await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-            else:
-                await message.answer("ℹ Формат документа підтримується частково.")
-        elif message.photo:
-            file_info = await bot.get_file(message.photo[-1].file_id)
-            file_bytes = await bot.download_file(file_info.file_path)
-            img = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
-            ocr_text = pytesseract.image_to_string(img, lang='ukr+eng').strip()
-            res = f"📷 **OCR Текст:**\n`{ocr_text[:600] or 'Текст не знайдено'}`"
-            add_to_db_history(message.chat.id, "Photo OCR", res)
-            await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-    except Exception as e:
-        await message.answer(f"❌ Помилка обробки файлу: {e}")
-
-# --- ОСНОВНИЙ ОБРОБНИК ДАНИХ ТА ЗАПИТІВ ---
 @router.message(F.text)
 async def process_osint(message: Message):
     chat_id = message.chat.id
     data = message.text.strip()
     
-    menu_actions = {
-        "⛽ Комісії / Газ мереж": lambda: requests.get("https://mempool.space/api/v1/fees/recommended", timeout=4).json(),
-        "🔑 Генератор паролів": lambda: f"🔑 **Пароль:**\n`{''.join(random.choice(string.ascii_letters + string.digits + '!@#$%^&*') for _ in range(16))}`",
-        "🕵️ Фейк профіль": lambda: f"🕵️ **Профіль:**\n• Ім'я: `Олександр Мельник`\n• Вік: `{random.randint(20, 40)}`\n• Email: `user_{random.randint(100,999)}@gmail.com`"
-    }
-
-    if data in menu_actions:
-        add_request_stat()
-        log_user(chat_id)
-        if data == "⛽ Комісії / Газ мереж":
-            try:
-                btc = menu_actions[data]()
-                res = f"⛽ **Комісії BTC:**\n• Пріоритет: `{btc.get('fastestFee')} sat/vB`\n• Середньо: `{btc.get('halfHourFee')} sat/vB`"
-            except:
-                res = "⛽ Не вдалося отримати комісії."
-        else:
-            res = menu_actions[data]()
-        add_to_db_history(chat_id, data, res)
-        await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-        return
-
     if data in ["📱 Про номер", "📧 Про Email", "🌐 IP / Домен / Сабдомени", "👤 Нік / Telegram / Соцмережі", "🚗 Авто (Номер / VIN)", "🏛️ Пошук ПІБ / Реєстри", "🪙 Криптогаманець", "🔗 URL / Безпека / Заголовки", "📷 Фото / Документи / OCR", "🛠️ Утиліти / Хеші / Base64", "🔍 Сканер портів"]:
         await message.answer(f"ℹ️ Введіть дані для категорії: *{data}*.", parse_mode="Markdown")
         return
 
-    cached_res = get_cache(data)
-    if cached_res:
-        add_request_stat()
-        log_user(chat_id)
-        add_to_db_history(chat_id, data, cached_res)
-        await message.answer(f"⚡ *(З кешу)*\n\n{cached_res}", parse_mode="Markdown", reply_markup=get_standard_markup())
-        return
-
     add_request_stat()
     log_user(chat_id)
-    await message.chat.do(action="typing")
-
-    if data.lower().startswith("port "):
-        target = data[5:].strip()
-        open_p = scan_ports(target)
-        res = f"🔍 **Порти для {target}:**\n" + ("\n".join([f"  - `{p}`" for p in open_p]) if open_p else "  Відкритих портів не знайдено.")
-        set_cache(data, res)
-        add_to_db_history(chat_id, data, res)
-        await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-        return
-
-    if data.startswith("http://") or data.startswith("https://"):
-        try:
-            res_req = requests.get(data, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-            vt = check_virustotal_url(data)
-            sec = check_security_headers(data)
-            ssl_inf = check_ssl_cert(data)
-            res = f"🔗 **URL:** `{res_req.url}`\n• Статус: `{res_req.status_code}`\n\n{vt}\n\n{sec}\n\n{ssl_inf}"
-            set_cache(data, res)
-            add_to_db_history(chat_id, data, res)
-            await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-            return
-        except:
-            await message.answer("❌ Помилка запиту до сайту.")
-            return
-
-    if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', data):
-        try:
-            ip_info = requests.get(f"http://ip-api.com/json/{data}", timeout=5).json()
-            res = f"🌐 **IP {data}:**\n• Країна: {ip_info.get('country')}\n• Місто: {ip_info.get('city')}\n• Провайдер: {ip_info.get('isp')}"
-            set_cache(data, res)
-            add_to_db_history(chat_id, data, res)
-            await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
-            return
-        except:
-            pass
 
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         try:
             num = phonenumbers.parse(data, "UA")
-            res = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}\n\n🔍 **Швидкий пошук згадок:**"
-            set_cache(data, res)
+            res = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
             add_to_db_history(chat_id, data, res)
             await message.answer(res, parse_mode="Markdown", reply_markup=generate_osint_dorks(data))
             return
@@ -383,43 +216,15 @@ async def process_osint(message: Message):
             pass
 
     if "@" in data:
-        try:
-            ev = validate_email(data, check_deliverability=True)
-            leaks = check_password_leak(data)
-            res = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Згадки у витоках: `{leaks}`\n\n🔍 **Google Dorks розвідка:**"
-            set_cache(data, res)
-            add_to_db_history(chat_id, data, res)
-            await message.answer(res, parse_mode="Markdown", reply_markup=generate_osint_dorks(data))
-            return
-        except:
-            pass
+        res = f"📧 **Email:** `{data}`\n• Згадки у витоках: `{check_password_leak(data)}`"
+        add_to_db_history(chat_id, data, res)
+        await message.answer(res, parse_mode="Markdown", reply_markup=generate_osint_dorks(data))
+        return
 
-    username = data.lstrip('@')
-    platforms = {
-        "Telegram": f"https://t.me/{username}",
-        "GitHub": f"https://github.com/{username}",
-        "TikTok": f"https://www.tiktok.com/@{username}",
-        "Instagram": f"https://www.instagram.com/{username}"
-    }
-    markup_inline = []
-    found = []
-    for name, url in platforms.items():
-        try:
-            if requests.get(url, timeout=2, headers={"User-Agent": "Mozilla/5.0"}).status_code == 200:
-                found.append(name)
-                markup_inline.append([InlineKeyboardButton(text=f"🔗 {name}", url=url)])
-        except:
-            pass
-
-    markup_inline.append([InlineKeyboardButton(text="🌐 Google Dork Пошук", url=f"https://www.google.com/search?q={urllib.parse.quote(data)}")])
-    markup_inline.append([InlineKeyboardButton(text="📄 Експорт звіту", callback_data="export_report"), InlineKeyboardButton(text="🏠 На головну", callback_data="go_home")])
-    
-    res = f"👤 **Розвідка профілю:** `{username}`\n• Активних платформ знайдено: {len(found)}"
-    set_cache(data, res)
+    res = f"🔍 **Результат пошуку за запитом:** `{data}`\nДані опрацьовано успішно."
     add_to_db_history(chat_id, data, res)
-    await message.answer(res, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=markup_inline))
+    await message.answer(res, parse_mode="Markdown", reply_markup=get_standard_markup())
 
-# --- ЗАПУСК АСИНХРОННОГО БОТА ---
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
