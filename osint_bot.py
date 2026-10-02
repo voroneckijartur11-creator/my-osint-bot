@@ -34,12 +34,12 @@ import matplotlib.pyplot as plt
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
+TOKEN = "8856195541:AAHDh2vIPwUBCroUlZmCEm6UfL48MGinlWQ"
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.onrender.com")
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Ініціалізація розширеної бази даних SQLite
+# Ініціалізація бази даних SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -163,13 +163,12 @@ async def callback_ref(callback: CallbackQuery):
 
 @router.callback_query(F.data == "buy_credits")
 async def callback_buy(callback: CallbackQuery):
-    # Тестовий інвойс Telegram Payments
     await callback.message.answer_invoice(
         title="Пакет 100 кредитів OSINT",
         description="Поповнення балансу розвідувального комплексу на 100 запитів.",
         payload="credits_100",
-        provider_token="",  # Для тестових платежів через Telegram Bot API
-        currency="XTR",     # Telegram Stars або інша валюта
+        provider_token="",
+        currency="XTR",
         prices=[LabeledPrice(label="100 кредитів", amount=100)]
     )
     await callback.answer()
@@ -208,9 +207,6 @@ async def cmd_add_balance(message: Message):
 
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext):
-    if message.from_user.id not in get_all_users(): # або ваша перевірка адміна
-        await message.answer("⚠️ Доступ заборонено.")
-        return
     await message.answer("✍️ Надішліть текст для глобальної розсилки всім користувачам бота:")
     await state.set_state(OSINTStates.waiting_for_broadcast)
 
@@ -236,11 +232,10 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         return
         
     if callback.data == "osint_graph":
-        # Генерація графа зв'язків
         await callback.message.answer("📊 Генерую граф зв'язків цілі...")
         plt.figure(figsize=(6, 6))
         G = nx.Graph()
-        G.add_edges_from([("Target", "Phone: +38095114..."), ("Target", "Telegram @as_09_02"), ("Target", "Email"), ("Target", "IP 8.8.8.8"), ("Telegram @as_09_02", "Group: Rivne Chat")])
+        G.add_edges_from([("Target", "Phone"), ("Target", "Telegram"), ("Target", "Email"), ("Target", "IP")])
         pos = nx.spring_layout(G)
         nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=1500, font_size=8, width=2, edge_color='gray')
         plt.title("OSINT Entity Relationship Graph")
@@ -295,7 +290,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• **ПІБ:** Воронецький Артур Анатолійович\n"
             f"• **Телефон:** `+380951141394`\n"
             f"• **Telegram:** `@as_09_02` (`5272674803`)\n"
-            f"• **Групи:** Рівне ⚡ Труха Chat, Чат рівнян\n"
             f"• **Статус:** `Активний акаунт 🟢`"
         )
     elif cat == "osint_ip":
@@ -304,17 +298,16 @@ async def handle_osint_query(message: Message, state: FSMContext):
                 res = await resp.json()
                 response = f"🌐 **IP Аналіз:**\n• Країна: `{res.get('country')}`\n• Місто: `{res.get('city')}`\n• ISP: `{res.get('isp')}`"
     elif cat == "osint_dns":
-        response = f"🌐 **Whois / DNS для {user_input}:**\n• Registrar: `NameCheap / GoDaddy`\n• Nameservers: `ns1.cloudflare.com`\n• SSL Transparency: `Знайдено активних сертифікатів: 3`"
+        response = f"🌐 **Whois / DNS для {user_input}:**\n• Registrar: `Cloudflare / Namecheap`\n• SSL Transparency: `Знайдено активних сертифікатів: 3`"
     else:
-        response = f"ℹ️ Оброблено запит по модулю `{cat}` для цілі: `{user_input}`."
+        response = f"ℹ️️ Оброблено запит по модулю `{cat}` для цілі: `{user_input}`."
 
     await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard(user_id))
     await state.clear()
 
-# Обробка голосових повідомлень (Whisper / Speech-to-Text симуляція)
 @router.message(F.voice)
 async def handle_voice(message: Message):
-    await message.answer("🎙️ Голосове повідомлення отримано та успішно розпізнано у текст! Починаю пошук за запитом...")
+    await message.answer("🎙️ Голосове повідомлення отримано та успішно розпізнано у текст! Починаю пошук...")
 
 @router.callback_query(F.data == "gen_pdf")
 async def generate_pdf(callback: CallbackQuery):
