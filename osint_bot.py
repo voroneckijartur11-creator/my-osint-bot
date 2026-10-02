@@ -15,6 +15,7 @@ from aiogram.types import (
 )
 import aiohttp
 from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -22,6 +23,12 @@ from reportlab.pdfgen import canvas
 logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
+
+# URL вашого сервісу на Render (автоматично береться з назви або середовища)
+# Замініть на ваше реальне посилання з Render, наприклад: https://my-new-osint-bot.onrender.com
+WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.onrender.com")
+WEBHOOK_PATH = f"/bot/{TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 # Ініціалізація бази даних SQLite
 def init_db():
@@ -257,33 +264,35 @@ async def generate_pdf(callback: CallbackQuery):
     if os.path.exists(filename):
         os.remove(filename)
 
-# Вебсервер для того, щоб Render не перезапускав бот
-async def handle_ping(request):
-    return web.Response(text="Dark Prince Bot is running! 🟢")
+async def on_startup(bot: Bot):
+    # Встановлюємо вебхук для Telegram при запуску
+    await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook set to {WEBHOOK_URL}")
 
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"Web server started on port {port}")
-
-async def main():
+def main():
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
+    
+    dp.startup.register(on_startup)
 
-    # Очищуємо старі завислі з'єднання Telegram
-    await bot.delete_webhook(drop_pending_updates=True)
+    app = web.Application()
     
-    # Запускаємо локальний вебсервер для Render та опитування бота одночасно
-    await start_web_server()
-    
-    logging.info("Super-bot started polling successfully...")
-    await dp.start_polling(bot)
+    # Реєструємо обробник для перевірки здоров'я сервера (Health check)
+    async def handle_ping(request):
+        return web.Response(text="Dark Prince Bot Webhook is active! 🟢")
+    app.router.add_get("/", handle_ping)
+
+    # Налаштовємо вебхук-сервер aiogram
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+
+    port = int(os.environ.get("PORT", 10000))
+    web.run_app(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
