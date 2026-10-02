@@ -1,12 +1,11 @@
-pyTelegramBotAPI
+aiogram
 requests
 phonenumbers
 email-validator
-pillow
-qrcode
+pypdf
 opencv-python-headless
 numpy
 pytesseract
-pypdf
+qrcode
 python-docx
 openpyxl
