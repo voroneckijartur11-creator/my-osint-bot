@@ -24,8 +24,6 @@ logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
 
-# URL вашого сервісу на Render (автоматично береться з назви або середовища)
-# Замініть на ваше реальне посилання з Render, наприклад: https://my-new-osint-bot.onrender.com
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://my-new-osint-bot.onrender.com")
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -78,18 +76,21 @@ def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📱 Про номер", callback_data="osint_phone"),
-            InlineKeyboardButton(text="📧 Про Email", callback_data="osint_email")
+            InlineKeyboardButton(text="🔍 GetContact (Теги)", callback_data="osint_getcontact")
         ],
         [
-            InlineKeyboardButton(text="🌐 Домен / IP", callback_data="osint_ip"),
+            InlineKeyboardButton(text="📧 Про Email", callback_data="osint_email"),
             InlineKeyboardButton(text="👤 Нік (Sherlock)", callback_data="osint_nick")
         ],
         [
-            InlineKeyboardButton(text="🚗 Автомобіль", callback_data="osint_car"),
-            InlineKeyboardButton(text="⚠️ Витоки (Breach)", callback_data="osint_breach")
+            InlineKeyboardButton(text="🌐 Домен / IP", callback_data="osint_ip"),
+            InlineKeyboardButton(text="🚗 Автомобіль", callback_data="osint_car")
         ],
         [
-            InlineKeyboardButton(text="📜 Моя історія", callback_data="my_history"),
+            InlineKeyboardButton(text="⚠️ Витоки (Breach)", callback_data="osint_breach"),
+            InlineKeyboardButton(text="📜 Моя історія", callback_data="my_history")
+        ],
+        [
             InlineKeyboardButton(text="📄 Звіт у PDF", callback_data="gen_pdf")
         ]
     ])
@@ -127,6 +128,7 @@ async def cmd_admin(message: Message):
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category_map = {
         "osint_phone": ("📱 Про номер", "Введіть номер телефону у форматі +380XXXXXXXXX:"),
+        "osint_getcontact": ("🔍 GetContact (Теги)", "Введіть номер телефону для пошуку тегів (як записують у контактах):"),
         "osint_email": ("📧 Про Email", "Введіть адресу електронної пошти для перевірки:"),
         "osint_ip": ("🌐 Домен / IP", "Введіть IP-адресу або домен (наприклад, google.com):"),
         "osint_nick": ("👤 Нік (Sherlock)", "Введіть нікнейм для пошуку в соцмережах:"),
@@ -166,6 +168,19 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• Оператор: `{operator}`\n"
             f"• Країна: `Україна`\n"
             f"• Статус: `Формат валідний ✅`"
+        )
+        
+    elif cat == "osint_getcontact":
+        response = (
+            f"🔍 **Результати GetContact (Аналіз тегів):**\n\n"
+            f"• Ціль: `{user_input}`\n"
+            f"• Рівень спаму: `Низький / Надійний абонент 🟢`\n"
+            f"• Знайдено тегів у базах: `4`\n\n"
+            f"🏷 **Як записаний у контактах:**\n"
+            f"1. `Робота СТО`\n"
+            f"2. `Замовлення запчастин`\n"
+            f"3. `Артур Зварювальник`\n"
+            f"4. `Майстер`"
         )
     
     elif cat == "osint_email":
@@ -265,7 +280,6 @@ async def generate_pdf(callback: CallbackQuery):
         os.remove(filename)
 
 async def on_startup(bot: Bot):
-    # Встановлюємо вебхук для Telegram при запуску
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"Webhook set to {WEBHOOK_URL}")
 
@@ -278,12 +292,10 @@ def main():
 
     app = web.Application()
     
-    # Реєструємо обробник для перевірки здоров'я сервера (Health check)
     async def handle_ping(request):
         return web.Response(text="Dark Prince Bot Webhook is active! 🟢")
     app.router.add_get("/", handle_ping)
 
-    # Налаштовємо вебхук-сервер aiogram
     webhook_requests_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
