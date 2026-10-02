@@ -21,7 +21,7 @@ from aiogram.types import (
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen canvas
+from reportlab.pdfgen import canvas
 
 # Для генерації графів зв'язків
 import networkx as nx
@@ -216,7 +216,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
     save_history(user_id, cat, user_input)
     
     if cat == "osint_phone":
-        # Динамічний аналіз введеного номера
         clean_num = user_input.replace("+", "")
         operator = "Невідомий оператор"
         country = "Невідома країна"
@@ -224,7 +223,7 @@ async def handle_osint_query(message: Message, state: FSMContext):
             country = "Україна 🇺🇦"
             code = clean_num[2:5]
             vodafone = ["050", "066", "095", "099"]
-.kyivstar = ["067", "068", "096", "097", "098"]
+            kyivstar = ["067", "068", "096", "097", "098"]
             lifecell = ["063", "073", "093"]
             if code in vodafone:
                 operator = "Vodafone Ukraine"
