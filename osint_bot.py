@@ -156,8 +156,8 @@ async def callback_admin(callback: CallbackQuery):
         f"• Всього виконано запитів: `{queries_count}`\n"
         f"• Ваш ID: `{user_id}`\n\n"
         f"Команди керування:\n"
-        f"`/addbalance <user_id> <сума>` — нарахувати кредити\n"
-        f"`/stats` — розширена статистика",
+        f"`/addbalance <user_id>` — надати +50 кредитів за ID\n"
+        f"`/addbalance <user_id> <сума>` — надати точну кількість",
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -165,7 +165,17 @@ async def callback_admin(callback: CallbackQuery):
 @router.message(Command("addbalance"))
 async def cmd_add_balance(message: Message):
     args = message.text.split()
-    if len(args) == 3:
+    # Якщо ввели тільки ID (наприклад, /addbalance 5272674803) -> даємо фіксовано 50 кредитів
+    if len(args) == 2:
+        try:
+            target_id = int(args[1])
+            amount = 50
+            update_balance(target_id, amount)
+            await message.answer(f"✅ Успішно додано фіксовані `{amount}` кредитів користувачу `{target_id}`.")
+        except ValueError:
+            await message.answer("⚠️ Невірний формат ID.")
+    # Якщо ввели і ID, і суму (наприклад, /addbalance 5272674803 100)
+    elif len(args) == 3:
         try:
             target_id = int(args[1])
             amount = int(args[2])
@@ -174,7 +184,12 @@ async def cmd_add_balance(message: Message):
         except ValueError:
             await message.answer("⚠️ Невірний формат чисел.")
     else:
-        await message.answer("Використання: `/addbalance ID СУМА`", parse_mode="Markdown")
+        await message.answer(
+            "Використання:\n"
+            "• Тільки по ID (+50 кр.): `/addbalance ID`\n"
+            "• З сумою: `/addbalance ID СУМА`", 
+            parse_mode="Markdown"
+        )
 
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
@@ -209,7 +224,7 @@ async def handle_osint_query(message: Message, state: FSMContext):
     balance = get_user_balance(user_id)
     
     if balance <= 0:
-        await message.answer("⚠️ У вас закінчилися кредити для запитів! Зверніться до адміністратора.")
+        await message.answer("⚠️ У вас закінчилися кредити для запитів! Поповніть баланс через адмін-панель.")
         await state.clear()
         return
 
@@ -233,7 +248,7 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• **Дата народження:** `04.01.2008`\n"
             f"• **Вік:** `18`\n\n"
             f"🔍 **Телефонні книги:**\n"
-            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`[span_0](start_span)[span_0](end_span)\n\n"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`\n\n"
             f"💬 **Telegram:** `@as_09_02` [`5272674803`]\n"
             f"📧 **E-mail:** `voroneckijartur11@gmail.com`"
         )
@@ -280,7 +295,7 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• Ціль: `{user_input}`\n"
             f"• Рівень спаму: `Низький / Надійний абонент 🟢`\n"
             f"• Знайдено в телефонних книгах:\n"
-            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`[span_1](start_span)[span_1](end_span)"
+            f"`Дмитро`, `Воронецький Артур`, `As_09_02`, `As_09_00`, `__ultra_stas__`, `Артур`, `Артурчєк`, `Діма`, `Краш`, `Лутший`, `Назік Гордіца`, `Назар`, `Назар Гордіца`"
         )
     
     elif cat == "osint_email":
@@ -293,7 +308,6 @@ async def handle_osint_query(message: Message, state: FSMContext):
         )
         
     elif cat == "osint_ip":
-        # Реальний запит через публічне API для IP/Домена
         api_url = f"http://ip-api.com/json/{user_input}"
         async with aiohttp.ClientSession() as session:
             try:
@@ -357,12 +371,11 @@ async def handle_osint_query(message: Message, state: FSMContext):
             f"• У зливових архівах: `Звіти про злами у відкритих базах не виявлено ✅`"
         )
     else:
-        response = f"ℹ️️ Отримано дані: `{user_input}`."
+        response = f"ℹ Отримано дані: `{user_input}`."
 
     await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=get_main_keyboard(user_id))
     await state.clear()
 
-# Модуль обробки фотографій для зчитування EXIF
 @router.message(F.photo)
 async def handle_photo_exif(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -373,7 +386,6 @@ async def handle_photo_exif(message: Message, state: FSMContext):
 
     update_balance(user_id, -1)
     
-    # Отримуємо найбільше фото
     photo = message.photo[-1]
     file = await message.bot.get_file(photo.file_id)
     file_bytes = await message.bot.download_file(file.file_path)
