@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = "8856195541:AAGZHXEPKMVcb7CwE2EHOXzk8NImTdKfOzY"
+TOKEN = "8856195541:AAHuP_LYbYwqE6xKxbvzWZVYeopLsgy22jM"
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
