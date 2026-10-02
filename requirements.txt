@@ -9,3 +9,4 @@ pytesseract
 qrcode
 python-docx
 openpyxl
+aiogram>=3.0.0
