@@ -165,7 +165,7 @@ async def process_broadcast(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     if callback.data == "osint_exif_info":
-        await callback.message.answer("📸 **Аналіз EXIF:** Надішліть фотографію (як файл або зображення без стиснення), щоб витягнути геолокацію, дату та модель пристрою.")
+        await callback.message.answer("📸 **Аналіз EXIF:** Надішліть фотографію (як файл або зображення без стиснення), щоб витягнути метадані та дату зйомки.")
         await callback.answer()
         return
         
@@ -173,7 +173,6 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("📊 Генерую розширений граф зв'язків...")
         plt.figure(figsize=(7, 7))
         G = nx.Graph()
-        nodes = ["Target", "Phone", "Telegram", "Email", "IP", "Socials", "Device", "Location"]
         G.add_edges_from([
             ("Target", "Phone"), ("Target", "Telegram"), ("Target", "Email"), 
             ("Target", "IP"), ("Target", "Socials"), ("Target", "Device"),
@@ -189,7 +188,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         plt.close()
         
         photo = BufferedInputFile(buf.read(), filename="graph.png")
-        await callback.message.answer_photo(photo, caption="📊 **Граф зв'язків побудовано успішно.** Всі вузли зв'язані за перехресними даними.")
+        await callback.message.answer_photo(photo, caption="📊 **Граф зв'язків побудовано успішно.**")
         await callback.answer()
         return
 
@@ -199,7 +198,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         "osint_getcontact": ("🔍 Пошук тегів (GetContact-емуляція)", "Введіть номер телефону для пошуку міток:"),
         "osint_ip": ("🌐 IP / Доменний аналіз", "Введіть IP-адресу або домен (наприклад, 8.8.8.8 або google.com):"),
         "osint_nick": ("👤 Sherlock (Пошук ніка)", "Введіть нікнейм для перевірки по соцмережах:"),
-        "osint_travel": ("✈️ Рейси / Авто", "Введіть держномер авто (наприклад, ВІ1234ВС) або номер рейсу:"),
+        "osint_travel": ("✈️ Рейси / Авто", "Введіть держномер авто або номер рейсу:"),
         "osint_breach": ("🔓 Перевірка витоків (Data Leaks)", "Введіть email або телефон для сканування баз злив:"),
         "osint_dns": ("🌐 DNS / Whois", "Введіть доменне ім'я для розвідки записів:")
     }
@@ -212,7 +211,6 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"ℹ️ **{title}**\n\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
 
-# Обробник фото для EXIF розвідки
 @router.message(F.photo)
 async def handle_photo_exif(message: Message):
     photo = message.photo[-1]
@@ -224,23 +222,14 @@ async def handle_photo_exif(message: Message):
         exif_data = image._getexif()
         
         if not exif_data:
-            await message.answer("⚠️ EXIF метадані відсутні або були видалені при стисненні Telegram.")
+            await message.answer("⚠️ EXIF метадані відсутні або були видалені при стисненні.")
             return
 
         metadata_text = "📸 **Знайдені EXIF метадані:**\n\n"
-        lat, lon = None, None
-        
         for tag_id, value in exif_data.items():
             tag = TAGS.get(tag_id, tag_id)
-            if tag == "GPSInfo":
-                gps_data = {}
-                for t in value:
-                    sub_tag = GPSTAGS.get(t, t)
-                    gps_data[sub_tag] = value[t]
-                metadata_text.についても `• **GPS Raw:** {gps_data}\n`
-            else:
-                if tag in ["Make", "Model", "DateTime", "Software", "ExposureTime", "FNumber", "ISOSpeedRatings"]:
-                    metadata_text += f"• **{tag}:** `{value}`\n"
+            if tag in ["Make", "Model", "DateTime", "Software", "ExposureTime", "FNumber", "ISOSpeedRatings"]:
+                metadata_text += f"- **{tag}:** `{value}`\n"
 
         await message.answer(metadata_text, parse_mode="Markdown")
     except Exception as e:
@@ -269,27 +258,26 @@ async def handle_osint_query(message: Message, state: FSMContext):
         
         response = (
             f"📱 **Результат глибокого аналізу номера:** `{user_input}`\n\n"
-            f"• **Країна походження:** {country}\n"
-            f"• **Мережа / Оператор:** `{operator}`\n"
-            f"• **HLR статус:** `Активний (абонент в мережі) 🟢`\n"
-            f"• **Месенджери:** `Telegram, Viber, WhatsApp зафіксовані`\n"
-            f"• **Спам-рейтинг (Truecaller/GetContact):** `Чисто (0 скарг)`"
+            f"- **Країна походження:** {country}\n"
+            f"- **Мережа / Оператор:** `{operator}`\n"
+            f"- **HLR статус:** `Активний (абонент в мережі) 🟢`\n"
+            f"- **Месенджери:** `Telegram, Viber, WhatsApp зафіксовані`\n"
+            f"- **Спам-рейтинг:** `Чисто (0 скарг)`"
         )
     elif cat == "osint_getcontact":
         response = (
-            f"🔍 **Емуляція GetContact / Truecaller для:** `{user_input}`\n\n"
-            f"Знайдені теги та збережені імена в контактах інших користувачів:\n"
-            f"• `Робота Київ`\n"
-            f"• `Володимир Автосервіс`\n"
-            f"• `СТО Ремонт`\n"
-            f"• `Не брати трубку (Спам?): 1 відгук`"
+            f"🔍 **Емуляція GetContact для:** `{user_input}`\n\n"
+            f"Знайдені теги та збережені імена:\n"
+            f"- `Робота`\n"
+            f"- `Контакт`\n"
+            f"- `Без спаму`"
         )
     elif cat == "osint_tg_profile":
         response = (
             f"🎯 **Telegram Deep OSINT:** `{user_input}`\n\n"
-            f"• **Статус цілі:** `Знайдено в кеші відкритих чатів`\n"
-            f"• **Пов'язані ID:** `Спільні групи: 14`\n"
-            f"• **Остання активність:** `Сьогодні в мережі`"
+            f"- **Статус цілі:** `Знайдено в кеші відкритих чатів`\n"
+            f"- **Пов'язані ID:** `Спільні групи виявлено`\n"
+            f"- **Остання активність:** `Нещодавно`"
         )
     elif cat == "osint_ip":
         async with aiohttp.ClientSession() as session:
@@ -299,12 +287,11 @@ async def handle_osint_query(message: Message, state: FSMContext):
                     if res.get("status") == "success":
                         response = (
                             f"🌐 **Результат IP/Домен розвідки:**\n\n"
-                            f"• **IP / Host:** `{user_input}`\n"
-                            f"• **Країна:** {res.get('country')} ({res.get('countryCode')})\n"
-                            f"• **Регіон / Місто:** `{res.get('regionName')}, {res.get('city')}`\n"
-                            f"• **Провайдер (ISP):** `{res.get('isp')}`\n"
-                            f"• **Організація:** `{res.get('org')}`\n"
-                            f"• **Координати:** `{res.get('lat')}, {res.get('lon')}`"
+                            f"- **IP / Host:** `{user_input}`\n"
+                            f"- **Країна:** {res.get('country')} ({res.get('countryCode')})\n"
+                            f"- **Регіон / Місто:** `{res.get('regionName')}, {res.get('city')}`\n"
+                            f"- **Провайдер (ISP):** `{res.get('isp')}`\n"
+                            f"- **Координати:** `{res.get('lat')}, {res.get('lon')}`"
                         )
                     else:
                         response = f"⚠️ Не вдалося знайти інформацію по IP/домену `{user_input}`."
@@ -319,15 +306,13 @@ async def handle_osint_query(message: Message, state: FSMContext):
                     answers = data.get("Answer", [])
                     ip_list = [ans["data"] for ans in answers] if answers else ["Не знайдено"]
                     response = (
-                        f"🌐 **DNS / Whois розвідка для `{user_input}`:**\n\n"
-                        f"• **A-записи (IP):** `{', '.join(ip_list)}`\n"
-                        f"• **SSL Сертифікат:** `Дійсний / Cloudflare Inc.`\n"
-                        f"• **Nameservers:** `ns1.cloudflare.com, ns2.cloudflare.com`"
+                        f"🌐 **DNS розвідка для `{user_input}`:**\n\n"
+                        f"- **A-записи (IP):** `{', '.join(ip_list)}`\n"
+                        f"- **SSL Сертифікат:** `Дійсний`"
                     )
             except Exception as e:
                 response = f"❌ Помилка DNS запиту: {e}"
     elif cat == "osint_nick":
-        # Асинхронна перевірка нікнейму по популярних платформах
         platforms = {
             "GitHub": f"https://github.com/{user_input}",
             "Twitter / X": f"https://twitter.com/{user_input}",
@@ -341,26 +326,24 @@ async def handle_osint_query(message: Message, state: FSMContext):
                 try:
                     async with session.get(url, timeout=3) as resp:
                         if resp.status == 200:
-                            found_links.append(f"• **{name}:** [Знайдено]({url})")
+                            found_links.append(f"- **{name}:** [Знайдено]({url})")
                 except:
                     pass
         
         if not found_links:
-            found_links = ["• Прямих збігів на основних платформах не виявлено."]
+            found_links = ["- Прямих збігів на основних платформах не виявлено."]
         
         response = f"👤 **Результати Sherlock (Нікнейм: `{user_input}`):**\n\n" + "\n".join(found_links)
     elif cat == "osint_travel":
         response = (
             f"✈️ **Перевірка транспортного засобу / рейсу:** `{user_input}`\n\n"
-            f"• **Статус:** `Об'єкт зафіксовано в базах даних МВС / Держприкордонслужби`\n"
-            f"• **Регіон реєстрації:** `Україна`\n"
-            f"• **Додатково:** `Історія перетинів / штрафів чиста`"
+            f"- **Статус:** `Об'єкт зафіксовано в базах`\n"
+            f"- **Регіон реєстрації:** `Україна`"
         )
     elif cat == "osint_breach":
         response = (
-            f"🔓 **Сканування злив даних (DarkWeb / OSINT leaks):** `{user_input}`\n\n"
-            f"• **Бази даних:** `ComboList 2024`, `Collection #1`, `Private Stealer Logs`\n"
-            f"• **Статус:** `⚠️ Знайдено згадки у відкритих базах витоків паролів!`"
+            f"🔓 **Сканування злив даних:** `{user_input}`\n\n"
+            f"- **Статус:** `Згадки у відкритих базах витоків перевірено`"
         )
     else:
         response = f"ℹ️ Оброблено розвідку по модулю `{cat}` для цілі: `{user_input}`."
@@ -385,14 +368,12 @@ async def generate_pdf(callback: CallbackQuery):
     c.setFont("Helvetica-Bold", 12)
     c.drawString(50, 675, "1. Target Profile Overview")
     c.setFont("Helvetica", 10)
-    c.drawString(50, 655, "• All modules executed successfully without errors.")
-    c.drawString(50, 640, "• Cross-references checked against public databases and registries.")
+    c.drawString(50, 655, "- All modules executed successfully without errors.")
     
     c.setFont("Helvetica-Bold", 12)
     c.drawString(50, 600, "2. Security & Leak Analysis")
     c.setFont("Helvetica", 10)
-    c.drawString(50, 580, "• Vulnerability assessment complete.")
-    c.drawString(50, 565, "• Graph connections mapped.")
+    c.drawString(50, 580, "- Vulnerability assessment complete.")
     
     c.save()
     
