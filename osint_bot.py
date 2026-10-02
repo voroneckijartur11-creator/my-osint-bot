@@ -18,13 +18,13 @@ import qrcode
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-# Налаштування логування
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Новий токен вашого бота
-TOKEN = "8856195541:AAGJk5JZ2Cn0IAvw-uN8TQhdkh7PZuORlcA"
+# Новый актуальный токен вашего бота
+TOKEN = "8856195541:AAH7zhK5PWgvIB0zcMSbkh8Nf5hhlDRDltc"
 
-# Ініціалізація бази даних SQLite
+# Инициализация базы данных SQLite
 def init_db():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -63,13 +63,13 @@ def save_history(user_id, q_type, q_data):
     conn.commit()
     conn.close()
 
-# Стани для FSM
+# Состояния для FSM
 class OSINTStates(StatesGroup):
     waiting_for_input = State()
 
 router = Router()
 
-# Головне меню з кнопками
+# Главное меню с кнопками
 def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -119,7 +119,7 @@ async def cmd_admin(message: Message):
         parse_mode="Markdown"
     )
 
-# Обробка натискання кнопок категорій
+# Обработка нажатий кнопок категорий
 @router.callback_query(F.data.startswith("osint_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category_map = {
@@ -139,7 +139,7 @@ async def process_category(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"ℹ️ Обрано модуль: **{title}**.\n{prompt_text}", parse_mode="Markdown")
     await callback.answer()
 
-# Реальна логіка обробки введених даних за категоріями
+# Реальная логика обработки данных
 @router.message(OSINTStates.waiting_for_input)
 async def handle_osint_query(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -227,7 +227,7 @@ async def handle_osint_query(message: Message, state: FSMContext):
     await message.answer(response, parse_mode="Markdown", disable_web_page_preview=True)
     await state.clear()
 
-# Історія користувача
+# История
 @router.callback_query(F.data == "my_history")
 async def show_history(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -246,7 +246,7 @@ async def show_history(callback: CallbackQuery):
         await callback.message.answer(text, parse_mode="Markdown")
     await callback.answer()
 
-# Генерація PDF звіту
+# PDF генерация
 @router.callback_query(F.data == "gen_pdf")
 async def generate_pdf(callback: CallbackQuery):
     user_id = callback.from_user.id
