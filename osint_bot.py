@@ -8,10 +8,8 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
-# Токен вашого бота
 TOKEN = "8856195541:AAGZHXEPKMVcb7CwE2EHOXzk8NImTdKfOzY"
 
-# 1. Міні-сервер для задоволення вимог Render до портів (Health Check)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -28,7 +26,6 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# 2. Ініціалізація бази даних SQLite (для користувачів та історії)
 def init_db():
     conn = sqlite3.connect('bot_database.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -44,13 +41,12 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-# Головна клавіатура з усіма функціями
 def get_main_keyboard():
     keyboard = [
         [KeyboardButton(text="📱 Про номер"), KeyboardButton(text="📧 Про Email")],
         [KeyboardButton(text="🌐 IP / Домен / Сабдомени"), KeyboardButton(text="👤 Нік / Telegram / Соцмережі")],
         [KeyboardButton(text="🚗 Авто (Номер / VIN)"), KeyboardButton(text="🏛 Пошук ПІБ / Реєстри")],
-        [KeyboardButton(text="📜 Моя історія"), KeyboardButton(text="ℹ️ Допомога")]
+        [KeyboardButton(text="📜 Моя історія"), KeyboardButton(text="ℹ️️ Допомога")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -99,7 +95,6 @@ async def process_osint(message: Message):
         await message.answer(f"ℹ️ Ви обрали категорію: *{data}*.\nНадішліть дані для перевірки у наступному повідомленні:", parse_mode="Markdown", reply_markup=get_main_keyboard())
         return
 
-    # Формування результату перевірки запиту
     res = f"🔍 **Результат перевірки:**\n• Запит: `{data}`\n• Статус: Дані успішно оброблено."
     
     db_cursor.execute('INSERT INTO history (chat_id, query, result_text) VALUES (?, ?, ?)', (chat_id, data, res))
