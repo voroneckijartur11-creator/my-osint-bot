@@ -1,7 +1,5 @@
-aiogram
+aiogram>=3.0.0
 requests
-phonenumbers
-email-validator
 pypdf
 opencv-python-headless
 numpy
@@ -9,4 +7,3 @@ pytesseract
 qrcode
 python-docx
 openpyxl
-aiogram>=3.0.0
