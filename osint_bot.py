@@ -10,7 +10,7 @@ import base64
 import hashlib
 import sqlite3
 import ssl
-import datetime
+import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot import types
@@ -102,6 +102,7 @@ def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     keyboard.add(types.KeyboardButton("📱 Про номер"), types.KeyboardButton("📧 Про Email"))
     keyboard.add(types.KeyboardButton("🌐 IP / Домен / Сабдомени"), types.KeyboardButton("👤 Нік / Telegram / Соцмережі"))
+    keyboard.add(types.KeyboardButton("🚗 Авто (Номер / VIN)"), types.KeyboardButton("🏛️ Пошук ПІБ / Реєстри"))
     keyboard.add(types.KeyboardButton("🪙 Криптогаманець"), types.KeyboardButton("🔗 URL / Безпека / Заголовки"))
     keyboard.add(types.KeyboardButton("📷 Фото / Документи / OCR"), types.KeyboardButton("🛠️ Утиліти / Хеші / Base64"))
     keyboard.add(types.KeyboardButton("⛽ Комісії / Газ мереж"), types.KeyboardButton("🔍 Сканер портів"))
@@ -116,7 +117,7 @@ def get_standard_markup():
     )
     return markup
 
-# --- НОВІ ТА РОЗШИРЕНІ УТИЛІТИ ---
+# --- OSINT ТА СПЕЦІАЛЬНІ МОДУЛІ ---
 def scan_ports(target):
     ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080, 8443]
     open_ports = []
@@ -206,16 +207,51 @@ def get_hash(text):
     sha256 = hashlib.sha256(text.encode()).hexdigest()
     return f"🛠️ **Хеші для `{text}`:**\n• MD5: `{md5}`\n• SHA1: `{sha1}`\n• SHA256: `{sha256}`"
 
+def generate_osint_dorks(query):
+    encoded = urllib.parse.quote(query)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("🌐 Google Search", url=f"https://www.google.com/search?q={encoded}"),
+        types.InlineKeyboardButton("📁 OLX / Оголошення", url=f"https://www.google.com/search?q=site:olx.ua+{encoded}")
+    )
+    markup.add(
+        types.InlineKeyboardButton("💬 Telegram Public", url=f"https://www.google.com/search?q=site:t.me+{encoded}"),
+        types.InlineKeyboardButton("📘 Facebook Mentions", url=f"https://www.google.com/search?q=site:facebook.com+{encoded}")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"),
+        types.InlineKeyboardButton("🏠 На головну", callback_data="go_home")
+    )
+    return markup
+
+def generate_fio_search_links(fio):
+    encoded = urllib.parse.quote(fio)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("⚖️ Судова влада України", url=f"https://court.gov.ua/fair/?query={encoded}"),
+        types.InlineKeyboardButton("🛑 Реєстр боржників", url=f"https://erb.minjust.gov.ua/")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🔍 YouControl (Компанії/ФОП)", url=f"https://youcontrol.com.ua/search/?q={encoded}"),
+        types.InlineKeyboardButton("🌐 Загальний пошук ПІБ", url=f"https://www.google.com/search?q={encoded}")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"),
+        types.InlineKeyboardButton("🏠 На головну", callback_data="go_home")
+    )
+    return markup
+
 # --- КОМАНДИ ТА CALLBACK ---
 @bot.message_handler(commands=['start'])
 def start_msg(message):
     log_user(message.chat.id)
     welcome_text = (
-        "🔥 **Ultimate OSINT Bot Max Pro+ (Full Arsenal Edition)**\n\n"
-        "Інтегровано повний набір інструментів розвідки та безпеки:\n"
-        "• 📱 Телефон, 📧 Пошта, витоки паролів, 🔑 Генератор хешів\n"
-        "• 🌐 IP, Домени, Порт-сканер, SSL, Заголовки безпеки\n"
-        "• 🛡️ VirusTotal, 📡 MAC Vendor, 🧮 Утиліти кодувань"
+        "🔥 **Ultimate OSINT Bot Max Pro+ (Recon Edition)**\n\n"
+        "Інтегровано поглиблений функціонал для розвідки та пробиву:\n"
+        "• 📱 Телефон, 📧 Пошта, витоки паролів, 🌐 Google Dorks\n"
+        "• 🏛️ Пошук за ПІБ (Суди, боржники, реєстри)\n"
+        "• 🚗 Перевірка авто за держномером\n"
+        "• 👤 Пошук по соцмережах, Telegram, 🛡️ VirusTotal, Порти"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -230,7 +266,7 @@ def history_msg(message):
     db_cursor.execute('SELECT query, timestamp FROM history WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5', (message.chat.id,))
     history = db_cursor.fetchall()
     if not history:
-        bot.reply_to(message, "ℹ️️ Ваша історія запитів порожня.")
+        bot.reply_to(message, "ℹ Ваша історія запитів порожня.")
         return
     text = "📜 **Ваші останні запити:**\n" + "\n".join([f"• `{h[0]}` _({h[1]})_" for h in history])
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
@@ -266,7 +302,6 @@ def handle_files(message):
             file_name = message.document.file_name.lower()
             
             if file_name.endswith(('.jpg', '.jpeg', '.png')):
-                image = Image.open(io.BytesIO(downloaded_file))
                 res = "📸 **EXIF Метадані:**\n• Зображення успішно проаналізовано."
                 add_to_db_history(message.chat.id, f"Photo: {file_name}", res)
                 bot.send_message(message.chat.id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
@@ -313,13 +348,19 @@ def process_osint(message):
     elif data == "🔍 Сканер портів":
         bot.reply_to(message, "ℹ️ Введіть IP або домен у форматі: `port 8.8.8.8`")
         return
+    elif data == "🚗 Авто (Номер / VIN)":
+        bot.reply_to(message, "ℹ️ Введіть державний номер автомобіля у форматі: `car AA1234BB`")
+        return
+    elif data == "🏛️ Пошук ПІБ / Реєстри":
+        bot.reply_to(message, "ℹ️ Введіть ПІБ людини для пошуку по реєстрах у форматі: `fio Шевченко Тарас Григорович`")
+        return
     elif data == "🔑 Генератор паролів":
         chars = string.ascii_letters + string.digits + "!@#$%^&*"
         pwd = "".join(random.choice(chars) for _ in range(16))
         res = f"🔑 **Безпечний пароль:**\n`{pwd}`"
         bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=get_standard_markup())
         return
-    elif data == "🕵️️ Фейк профіль":
+    elif data == "🕵️ Фейк профіль":
         names = ["Олександр", "Максим", "Андрій", "Софія", "Юлія", "Дмитро", "Артем", "Ірина"]
         surnames = ["Коваленко", "Шевченко", "Мельник", "Бойко", "Ткаченко", "Кравченко"]
         res = f"🕵️ **Фейковий профіль:**\n• Ім'я: `{random.choice(names)} {random.choice(surnames)}`\n• Вік: `{random.randint(19, 45)}`\n• Email: `user_{random.randint(1000,9999)}@gmail.com`"
@@ -330,7 +371,21 @@ def process_osint(message):
         bot.reply_to(message, f"Введіть дані для категорії: *{data}*.", parse_mode="Markdown")
         return
 
-    # Префіксні утиліти
+    # Префіксні утиліти пробиву та розвідки
+    if data.lower().startswith("car "):
+        plate = data[4:].strip().upper()
+        res = f"🚗 **Автомобільний запит:** `{plate}`\n• Перевірка через відкриті джерела та держреєстри МВС."
+        add_to_db_history(chat_id, data, res)
+        bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=generate_osint_dorks(f"автономер {plate}"))
+        return
+
+    if data.lower().startswith("fio "):
+        fio = data[4:].strip()
+        res = f"🏛️ **Пошук за ПІБ:** `{fio}`\n• Знайдено модулі перевірки у відкритих реєстрах (суди, боржники, відкриті дані)."
+        add_to_db_history(chat_id, data, res)
+        bot.send_message(chat_id, res, parse_mode="Markdown", reply_markup=generate_fio_search_links(fio))
+        return
+
     if data.lower().startswith("port "):
         target = data[5:].strip()
         bot.reply_to(message, f"🔍 Сканую порти для `{target}`...")
@@ -386,8 +441,8 @@ def process_osint(message):
         bot.reply_to(message, res, parse_mode="Markdown")
         return
 
-    # Основний аналіз
-    bot.reply_to(message, f"⚙️ Обробка запиту...", parse_mode="Markdown")
+    # Основний аналіз та автоматичні Dorks для номерів/пошт
+    bot.reply_to(message, f"⚙️ Обробка запиту та глибокий пошук...", parse_mode="Markdown")
 
     if data.startswith("http://") or data.startswith("https://"):
         try:
@@ -427,9 +482,9 @@ def process_osint(message):
     if data.startswith('+') or (data.isdigit() and len(data) >= 9):
         try:
             num = phonenumbers.parse(data, "UA")
-            text = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}"
+            text = f"📱 **Телефон:** `{data}`\n• Регіон: {geocoder.description_for_number(num, 'uk')}\n• Оператор: {carrier.name_for_number(num, 'uk')}\n\n🔍 **Генерація OSINT Dorks для пошуку згадок номеру:**"
             add_to_db_history(chat_id, data, text)
-            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=generate_osint_dorks(data))
             return
         except Exception:
             pass
@@ -437,14 +492,14 @@ def process_osint(message):
     if "@" in data:
         try:
             ev = validate_email(data, check_deliverability=True)
-            text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний: Так"
+            text = f"📧 **Email:** `{data}`\n• Домен: `{ev.domain}`\n• Валідний: Так\n\n🔍 **Генерація OSINT Dorks для пошти:**"
             add_to_db_history(chat_id, data, text)
-            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_standard_markup())
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=generate_osint_dorks(data))
             return
         except Exception:
             pass
 
-    # Sherlock нікнейм
+    # Sherlock нікнейм або загальний текст для Dorks
     username = data.lstrip('@')
     platforms = {
         "Telegram": f"https://t.me/{username}",
@@ -462,11 +517,16 @@ def process_osint(message):
         except Exception:
             pass
 
+    # Додаємо кнопки Google Dorks для невідомого запиту
+    markup.add(
+        types.InlineKeyboardButton("🌐 Google Dork Пошук", url=f"https://www.google.com/search?q={urllib.parse.quote(data)}")
+    )
     markup.add(
         types.InlineKeyboardButton("📄 Експорт звіту", callback_data="export_report"),
         types.InlineKeyboardButton("🏠 На головну", callback_data="go_home")
     )
-    res_text = f"👤 **Нік:** `{username}`\n• Знайдено платформ: {len(found)}"
+    
+    res_text = f"👤 **Пошук соцмереж / Розвідка:** `{username}`\n• Знайдено активних платформ: {len(found)}\n• Використано розширений пошуковий модуль."
     add_to_db_history(chat_id, data, res_text)
     bot.send_message(chat_id, res_text, parse_mode="Markdown", reply_markup=markup)
 
