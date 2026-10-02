@@ -96,7 +96,7 @@ async def process_osint(message: Message):
     ]
     
     if data in categories:
-        await message.answer(f"ℹ️️ Ви обрали категорію: *{data}*.\nНадішліть дані для перевірки у наступному повідомленні:", parse_mode="Markdown", reply_markup=get_main_keyboard())
+        await message.answer(f"ℹ️ Ви обрали категорію: *{data}*.\nНадішліть дані для перевірки у наступному повідомленні:", parse_mode="Markdown", reply_markup=get_main_keyboard())
         return
 
     # Формування результату перевірки запиту
