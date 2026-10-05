@@ -13,12 +13,17 @@ import io
 import random
 import string
 from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS
+from PIL.ExifTags import TAGS
 import cv2
 import numpy as np
 from aiohttp import web
+import phonenumbers
+from phonenumbers import carrier, geocoder, timezone
+import ssl
+import socket
+from datetime import datetime
 
-# Ваш актуальний токен
+# Ваш токен
 TOKEN = "8856195541:AAE-ta26zPsqk5wESGjhmHMJGby9ljjVjKY"
 
 logging.basicConfig(level=logging.INFO)
@@ -50,19 +55,27 @@ class SearchStates(StatesGroup):
     waiting_for_email = State()
     waiting_for_web_archive = State()
     waiting_for_crypto = State()
-    waiting_for_coords = State()
+    waiting_for_phone = State()
+    waiting_for_car = State()
+    waiting_for_geoip = State()
+    waiting_for_dorks = State()
+    waiting_for_ssl_check = State()
 
 # --- ГОЛОВНЕ МЕНЮ ---
 def get_main_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🕵 Пошук нікнейма (30+ платформ)", callback_data="search_nick")],
-        [InlineKeyboardButton(text="🌐 Домени, IP & Whois (Shodan)", callback_data="search_ip")],
-        [InlineKeyboardButton(text="📦 Зливи даних (IntelX / HIBP)", callback_data="search_intelx")],
-        [InlineKeyboardButton(text="🗺️️ Gmail (EPIOS) & Координати", callback_data="search_epios")],
-        [InlineKeyboardButton(text="⏪ Архів сайту (Wayback)", callback_data="wayback_check")],
-        [InlineKeyboardButton(text="🪙 Крипто-розвідка (BTC/ETH/TRON)", callback_data="crypto_check")],
-        [InlineKeyboardButton(text="🛠️ Утиліти (Паролі / QR-коди)", callback_data="utilities_menu")],
-        [InlineKeyboardButton(text="ℹ️ Про можливості бота", callback_data="help_info")]
+        [InlineKeyboardButton(text="🕵 Пошук нікнейма", callback_data="search_nick"),
+         InlineKeyboardButton(text="📱 Перевірка телефону", callback_data="search_phone")],
+        [InlineKeyboardButton(text="🚗 Перевірка авто за номером", callback_data="search_car"),
+         InlineKeyboardButton(text="🌍 GeoIP локація", callback_data="search_geoip")],
+        [InlineKeyboardButton(text="🌐 Домени, IP & Whois", callback_data="search_ip"),
+         InlineKeyboardButton(text="🔒 Аудит SSL сайту", callback_data="search_ssl")],
+        [InlineKeyboardButton(text="📦 Зливи даних (IntelX)", callback_data="search_intelx"),
+         InlineKeyboardButton(text="🔍 Google Dorks генератор", callback_data="search_dorks")],
+        [InlineKeyboardButton(text="⏪ Архів сайту (Wayback)", callback_data="wayback_check"),
+         InlineKeyboardButton(text="🪙 Крипто-розвідка", callback_data="crypto_check")],
+        [InlineKeyboardButton(text="🛠️ Утиліти (Паролі / QR)", callback_data="utilities_menu"),
+         InlineKeyboardButton(text="ℹ️ Про можливості", callback_data="help_info")]
     ])
     return keyboard
 
@@ -77,19 +90,20 @@ async def cmd_start(message: types.Message):
 
     await message.answer(
         f"Вітаю, {message.from_user.first_name}!\n\n"
-        "Я ваш максимальний OSINT-комбайн. Оберіть потрібний інструмент з меню нижче або надішліть фото/QR-код для аналізу:",
+        "Я ваш оновлений OSINT-комбайн. Оберіть потрібний інструмент з меню нижче або надішліть фото/QR-код для аналізу:",
         reply_markup=get_main_keyboard()
     )
 
 @dp.callback_query(F.data == "help_info")
 async def help_callback(callback: types.CallbackQuery):
     help_text = (
-        "🤖 **Розширений OSINT-бот (All-in-One):**\n\n"
-        "• **Нікнейми:** перевірка наявності акаунтів.\n"
-        "• **Інфраструктура:** Shodan, Censys, Whois/DNS.\n"
-        "• **Безпека:** IntelX, HIBP (перевірка зливів пошт).\n"
-        "• **Крипта:** перевірка балансів адрес BTC, ETH, TRON.\n"
-        "• **Фото та медіа:** повний аналіз EXIF та читання QR-кодів з картинок."
+        "🤖 **Розширений OSINT-бот (All-in-One v2):**\n\n"
+        "• **Нікнейми:** перевірка на платформах.\n"
+        "• **Телефони:** оператор, регіон, месенджери.\n"
+        "• **Автомобілі:** перевірка держ. номерів України.\n"
+        "• **GeoIP:** визначення країни та провайдера за IP.\n"
+        "• **Безпека:** аудит SSL-сертифікатів, Shodan, IntelX, HIBP.\n"
+        "• **Медіа:** EXIF-метадані та зчитування QR-кодів."
     )
     await callback.message.edit_text(help_text, reply_markup=get_main_keyboard())
     await callback.answer()
@@ -102,32 +116,57 @@ async def utils_menu(callback: types.CallbackQuery):
     text = (
         "🛠️ **Корисні утиліти:**\n\n"
         f"🔑 **Безпечний пароль (16 знаків):** `{secure_pass}`\n\n"
-        "📷 *Хочете розшифрувати QR-код?* Просто надішліть картинку з QR-кодом у чат!"
+        "📷 *Хочете розшифрувати QR-код або перевірити EXIF?* Просто надішліть картинку у чат!"
     )
     await callback.message.edit_text(text, reply_markup=get_main_keyboard())
     await callback.answer()
 
+# --- КНОПКИ ВИЗУВУ СТАНІВ ---
 @dp.callback_query(F.data == "search_nick")
 async def ask_username(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Введіть нікнейм для пошуку (наприклад, `durov`):")
     await state.set_state(SearchStates.waiting_for_username)
     await callback.answer()
 
+@dp.callback_query(F.data == "search_phone")
+async def ask_phone(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введіть номер телефону у міжнародному форматі (наприклад, `+380501234567`):")
+    await state.set_state(SearchStates.waiting_for_phone)
+    await callback.answer()
+
+@dp.callback_query(F.data == "search_car")
+async def ask_car(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введіть державний номер автомобіля (наприклад, `KA1234AB` або `АІ4567ВХ`):")
+    await state.set_state(SearchStates.waiting_for_car)
+    await callback.answer()
+
+@dp.callback_query(F.data == "search_geoip")
+async def ask_geoip(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введіть IP-адресу для перевірки GeoIP (наприклад, `8.8.8.8`):")
+    await state.set_state(SearchStates.waiting_for_geoip)
+    await callback.answer()
+
 @dp.callback_query(F.data == "search_ip")
 async def ask_ip(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введіть IP-адресу або домен (наприклад, `google.com`):")
+    await callback.message.answer("Введіть IP-адресу або домен для Shodan/Censys:")
     await state.set_state(SearchStates.waiting_for_ip_domain)
+    await callback.answer()
+
+@dp.callback_query(F.data == "search_ssl")
+async def ask_ssl(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введіть домен сайту для аудиту безпеки та SSL (наприклад, `google.com`):")
+    await state.set_state(SearchStates.waiting_for_ssl_check)
+    await callback.answer()
+
+@dp.callback_query(F.data == "search_dorks")
+async def ask_dorks(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введіть ПІБ або ключове слово для генератора Google Dorks:")
+    await state.set_state(SearchStates.waiting_for_dorks)
     await callback.answer()
 
 @dp.callback_query(F.data == "search_intelx")
 async def ask_intelx(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Введіть email або ключове слово для перевірки зливів:")
-    await state.set_state(SearchStates.waiting_for_email)
-    await callback.answer()
-
-@dp.callback_query(F.data == "search_epios")
-async def ask_epios(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введіть Gmail-адресу для перевірки через EPIOS:")
     await state.set_state(SearchStates.waiting_for_email)
     await callback.answer()
 
@@ -142,6 +181,120 @@ async def ask_crypto(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Введіть криптогаманець (Bitcoin, Ethereum або TRON/USDT):")
     await state.set_state(SearchStates.waiting_for_crypto)
     await callback.answer()
+
+# --- ОБРОБНИКИ НОВИХ ФУНКЦІЙ ---
+
+@dp.message(SearchStates.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    raw_phone = message.text.strip()
+    try:
+        parsed_number = phonenumbers.parse(raw_phone)
+        if not phonenumbers.is_valid_number(parsed_number):
+            await message.answer("⚠️ Введений номер виглядає недійсним або некоректним.", reply_markup=get_main_keyboard())
+            await state.clear()
+            return
+        
+        country = geocoder.description_for_number(parsed_number, "uk")
+        isp = carrier.name_for_number(parsed_number, "en")
+        tz = timezone.time_zones_for_number(parsed_number)
+        clean_num = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.E164)
+        num_digits = clean_num.replace("+", "")
+
+        text = (
+            f"📱 **Результати аналізу телефону:** `{clean_num}`\n\n"
+            f"🌍 **Країна / Регіон:** {country or 'Невідомо'}\n"
+            f"📡 **Оператор (Мобільна мережа):** {isp or 'Визначити не вдалося'}\n"
+            f"⏰ **Часовий пояс:** {', '.join(tz) if tz else 'Невідомо'}\n\n"
+            f"🔗 **Швидкі посилання на месенджери:**\n"
+            f"• [Telegram](https://t.me/{num_digits})\n"
+            f"• [WhatsApp](https://wa.me/{num_digits})\n"
+            f"• [Viber](viber://chat?number=%2B{num_digits})"
+        )
+        await message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"❌ Помилка обробки номера: {e}", reply_markup=get_main_keyboard())
+    await state.clear()
+
+@dp.message(SearchStates.waiting_for_car)
+async def process_car(message: types.Message, state: FSMContext):
+    car_number = message.text.strip().upper()
+    text = (
+        f"🚗 **Пошук транспортного засобу:** `{car_number}`\n\n"
+        f"🔍 Перевірка за відкритими реєстрами України:\n"
+        f"🔗 [OpenDataBot (Авто)](https://opendatabot.ua/c/{car_number})\n"
+        f"🔗 [Baza Demurrer / Номери UA](https://baza.com.ua/search?q={car_number})\n\n"
+        f"*(Посилання дозволять швидко перевірити марку, модель, рік випуску та наявність можливих обтяжень)*"
+    )
+    await message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+    await state.clear()
+
+@dp.message(SearchStates.waiting_for_geoip)
+async def process_geoip(message: types.Message, state: FSMContext):
+    ip_query = message.text.strip()
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"http://ip-api.com/json/{ip_query}", timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data["status"] == "success":
+                        text = (
+                            f"🌍 **GeoIP дані для:** `{ip_query}`\n\n"
+                            f"🏳️ **Країна:** {data.get('country')} ({data.get('countryCode')})\n"
+                            f"🏙️ **Місто:** {data.get('city')}, {data.get('regionName')}\n"
+                            f"🏢 **Провайдер (ISP):** {data.get('isp')}\n"
+                            f"🌐 **Організація:** {data.get('org')}\n"
+                            f"📌 **Координати:** `{data.get('lat')}, {data.get('lon')}`\n"
+                            f"🔗 [Відкрити на мапі](https://maps.google.com/?q={data.get('lat')},{data.get('lon')})"
+                        )
+                        await message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+                    else:
+                        await message.answer("❌ Не вдалося знайти геолокацію за цією IP-адресою.", reply_markup=get_main_keyboard())
+                else:
+                    await message.answer("⚠️ Сервіс GeoIP тимчасово недоступний.", reply_markup=get_main_keyboard())
+        except Exception as e:
+            await message.answer(f"❌ Помилка запиту: {e}", reply_markup=get_main_keyboard())
+    await state.clear()
+
+@dp.message(SearchStates.waiting_for_ssl_check)
+async def process_ssl(message: types.Message, state: FSMContext):
+    domain = message.text.strip().replace("https://", "").replace("http://", "").split("/")[0]
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+                
+                subject = dict(x[0] for x in cert.get('subject', []))
+                issuer = dict(x[0] for x in cert.get('issuer', []))
+                not_after = cert.get('notAfter')
+                
+                text = (
+                    f"🔒 **Аудит SSL-сертифіката:** `{domain}`\n\n"
+                    f"🏢 **Видавець (Issuer):** {issuer.get('organizationName', 'Невідомо')}\n"
+                    f"👤 **Власник (Subject):** {subject.get('commonName', 'Невідомо')}\n"
+                    f"⏳ **Дійсний до:** {not_after}\n\n"
+                    f"✅ З'єднання захищене шифруванням SSL/TLS."
+                )
+                await message.answer(text, reply_markup=get_main_keyboard())
+    except Exception as e:
+        await message.answer(f"❌ Не вдалося отримати SSL-сертифікат для `{domain}`.\nПомилка: {e}", reply_markup=get_main_keyboard())
+    await state.clear()
+
+@dp.message(SearchStates.waiting_for_dorks)
+async def process_dorks(message: types.Message, state: FSMContext):
+    query = message.text.strip()
+    q_enc = query.replace(" ", "+")
+    text = (
+        f"🔍 **Google Dorks для запиту:** `{query}`\n\n"
+        f"Натисніть на посилання для глибокого пошуку в Google:\n\n"
+        f"📄 **Документи (PDF/DOC):**\n🔗 [Шукати файли](https://www.google.com/search?q=site%3Alinkedin.com+%22{q_enc}%22+OR+site%3Afacebook.com+%22{q_enc}%22)\n\n"
+        f"📂 **Згадки в соцмережах:**\n🔗 [Соцмережі](https://www.google.com/search?q=%22{q_enc}%22+site%3Atwitter.com+OR+site%3Ainstagram.com)\n\n"
+        f"⚙️ **Конфіденційні файли/звіти:**\n🔗 [Звіти та дані](https://www.google.com/search?q=filetype%3Apdf+OR+filetype%3XLS+%22{q_enc}%22)"
+    )
+    await message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+    await state.clear()
+
+# --- СТАРІ ОБРОБНИКИ (Нікнейми, IP, IntelX, Wayback, Крипта) ---
 
 @dp.message(SearchStates.waiting_for_username)
 async def process_username(message: types.Message, state: FSMContext):
@@ -212,12 +365,7 @@ async def process_crypto(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
     await state.clear()
 
-def convert_to_degress(value):
-    d = float(value[0])
-    m = float(value[1])
-    s = float(value[2])
-    return d + (m / 60.0) + (s / 3600.0)
-
+# --- ОБРОБКА ФОТО ТА QR-КОДІВ ---
 @dp.message(F.photo | F.document)
 async def handle_media(message: types.Message):
     if message.photo:
@@ -252,7 +400,7 @@ async def handle_media(message: types.Message):
         image = Image.open(photo_bytes)
         exif_data = image._getexif()
         if not exif_data:
-            await message.answer("⚠️ EXIF-метадані відсутні.", reply_markup=get_main_keyboard())
+            await message.answer("⚠️ EXIF-метадані відсутні або вирізані месенджером.", reply_markup=get_main_keyboard())
             return
 
         exif_info = []
@@ -264,11 +412,11 @@ async def handle_media(message: types.Message):
         response_text = "📸 **Метадані фото (EXIF):**\n\n" + "\n".join(exif_info[:15])
         await message.answer(response_text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"❌ Помилка: {e}", reply_markup=get_main_keyboard())
+        await message.answer(f"❌ Помилка читання метаданих: {e}", reply_markup=get_main_keyboard())
 
-# --- ФЕЙКОВИЙ ВЕБСЕРВЕР ДЛЯ RENDER (Щоб він не вимикав бота) ---
+# --- ВЕБСЕРВЕР ДЛЯ RENDER ---
 async def handle_web(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot v2 is running!")
 
 async def web_server():
     app = web.Application()
@@ -280,8 +428,8 @@ async def web_server():
     await site.start()
 
 async def main():
-    await web_server() # Запускаємо вебсервер для Render
-    await dp.start_polling(bot) # Запускаємо бота
+    await web_server()
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
