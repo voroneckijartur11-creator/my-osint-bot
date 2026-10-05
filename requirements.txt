@@ -6,3 +6,4 @@ qrcode
 networkx
 matplotlib
 opencv-python-headless
+phonenumbers
