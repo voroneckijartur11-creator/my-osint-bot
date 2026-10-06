@@ -22,7 +22,7 @@ import ssl
 import socket
 import io
 
-TOKEN = "8856195541:AAGe5Hi9-9BHlwPkATUw_qYta50i6qBujSc"
+TOKEN = "8856195541:AAGqqLALAuZdrKovTPZA7AUd7N8SJu9H_pQ"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
